@@ -10,28 +10,22 @@ authors = [{ name = "Your Name" }]
 dependencies = [
     # MCP server + middleware + proxy
     "fastmcp>=3.0,<4.0",
-
     # Agent loop and memory store
     "langgraph>=1.0,<2.0",
     "langgraph-checkpoint-postgres>=3.1,<4.0",
     "langchain-mcp-adapters>=0.2,<0.3",
-
     # LLM provider
     "anthropic>=0.40",
-
     # Postgres + vector
     "psycopg[binary,pool]>=3.2",
     "pgvector>=0.3",
-
     # Web sidecar + config
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "pydantic>=2.8,<3",
     "pydantic-settings>=2.5",
-
     # Phase 2: SQL parsing for conflict detection
     "sqlglot>=25",
-
     # Logging
     "structlog>=24",
 ]
