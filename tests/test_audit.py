@@ -10,10 +10,9 @@ from collections.abc import Callable
 
 import pytest
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.server import create_proxy
 from psycopg_pool import AsyncConnectionPool
-
-from fastmcp.exceptions import ToolError
 
 from agent_service.memory.episodes import get_recent_episodes
 from agent_service.middleware.audit import AuditMiddleware
@@ -93,7 +92,7 @@ async def test_audit_row_written_on_error(
 async def test_audit_namespace_routing(
     unit_pool: AsyncConnectionPool,  # type: ignore[type-arg]
 ) -> None:
-    """Tool names with saaz keywords route to saaz_demo namespace."""
+    """namespace_keywords_factory routes tool calls to the correct namespace."""
     upstream: FastMCP = FastMCP("fake")  # type: ignore[type-arg]
 
     @upstream.tool
@@ -103,7 +102,18 @@ async def test_audit_namespace_routing(
     proxy = create_proxy(upstream, name="proxy")
     parent: FastMCP = FastMCP("parent")  # type: ignore[type-arg]
     parent.mount(proxy, namespace=None)
-    parent.add_middleware(AuditMiddleware(pool_factory=lambda: unit_pool))
+
+    # Pass explicit project keywords via the factory (mirrors production behaviour
+    # where keywords come from NAMESPACE_ROUTING_KEYWORDS / DB registry).
+    project_keywords: dict[str, list[str]] = {
+        "saaz_demo": ["artist", "song", "persian", "jazz", "saaz", "genre"],
+    }
+    parent.add_middleware(
+        AuditMiddleware(
+            pool_factory=lambda: unit_pool,
+            namespace_keywords_factory=lambda: project_keywords,
+        )
+    )
 
     await parent.call_tool("search_artists", {"q": "test"})
 
