@@ -31,6 +31,7 @@ from slowapi.util import get_remote_address
 from starlette.responses import JSONResponse
 
 from agent_service.config import Settings, get_settings
+from agent_service.db_registry import load_active_databases, register_db_registry_tools
 from agent_service.memory.store import apply_pending_migrations, create_pool
 from agent_service.middleware.audit import AuditMiddleware
 from agent_service.middleware.session import (
@@ -40,15 +41,15 @@ from agent_service.middleware.session import (
 )
 from agent_service.middleware.timeout import TimeoutMiddleware
 from agent_service.provision import register_provision_tools
-from agent_service.proxy import build_mneme_server, mount_upstream
+from agent_service.proxy import build_mneme_server
 
 # ---------------------------------------------------------------------------
 # Module-level: pool reference (set once in lifespan, never mutated after)
 # ---------------------------------------------------------------------------
-_pool: AsyncConnectionPool | None = None  # type: ignore[type-arg]
+_pool: AsyncConnectionPool | None = None
 
 
-def _get_pool() -> AsyncConnectionPool:  # type: ignore[type-arg]
+def _get_pool() -> AsyncConnectionPool:
     if _pool is None:
         from agent_service.errors import PoolNotReadyError
 
@@ -119,20 +120,35 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log = structlog.get_logger(__name__)
     log.info("startup", **settings.as_log_safe())
 
-    # Populate namespace routing keyword overrides from config (if any).
-    # Empty dict means "use built-in defaults in routing.py".
-    _namespace_keywords = settings.namespace_routing_keywords or None
-
-    # Create pool and apply the 0002 migration (0001 already applied on Helium)
+    # Create pool and apply all pending migrations (0002 + 0003)
     _pool = await create_pool(settings.database_url_str())
     app.state.pool = _pool
     await apply_pending_migrations(_pool)
 
-    # Mount one proxy per configured upstream database MCP server
-    mount_upstream(mneme, settings)
+    # Build merged upstream map: DB registry entries + env-var entries.
+    # Env-var entries (UPSTREAM_DB_MCP_SERVERS) win on conflict so operators
+    # can override registry values without editing the DB.
+    registry_dbs = await load_active_databases(_pool)
+    registry_servers: dict[str, str] = {db.namespace: db.mcp_url for db in registry_dbs}
+    env_servers: dict[str, str] = settings.all_upstream_servers()
+    merged_servers = {**registry_servers, **env_servers}  # env wins on conflict
 
-    # Register native agent-owned tools (provision_database, list_database_regions)
+    # Build merged routing keywords: DB registry → then env override.
+    registry_keywords: dict[str, list[str]] = {
+        db.namespace: db.routing_keywords
+        for db in registry_dbs
+        if db.routing_keywords
+    }
+    env_keywords: dict[str, list[str]] = settings.namespace_routing_keywords
+    _namespace_keywords = {**registry_keywords, **env_keywords} or None
+
+    # Mount one proxy per upstream (merged env + registry)
+    from agent_service.proxy import mount_upstream_map
+    mount_upstream_map(mneme, merged_servers)
+
+    # Register native agent-owned tools
     register_provision_tools(mneme, settings)
+    register_db_registry_tools(mneme, _get_pool)
 
     # Start idle session reaper background task
     shutdown_event = asyncio.Event()
@@ -204,7 +220,7 @@ app.mount("/mcp", _mcp_http_app)
 # ---------------------------------------------------------------------------
 @app.get("/healthz")
 async def healthz(request: Request) -> dict[str, Any]:
-    pool: AsyncConnectionPool | None = getattr(request.app.state, "pool", None)  # type: ignore[type-arg]
+    pool: AsyncConnectionPool | None = getattr(request.app.state, "pool", None)
     db_ok = False
     if pool is not None:
         try:
