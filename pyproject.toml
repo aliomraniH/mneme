@@ -28,6 +28,8 @@ dependencies = [
     "sqlglot>=25",
     # Logging
     "structlog>=24",
+    # Rate limiting
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -38,7 +40,9 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "pre-commit>=4",
-    "httpx>=0.27",  # for testing FastAPI sidecar
+    "httpx>=0.27",
+    "pytest-postgresql>=7.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.scripts]
@@ -64,6 +68,21 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = [
+    "fastmcp.*",
+    "langgraph.*",
+    "langchain_mcp_adapters.*",
+    "langgraph_checkpoint_postgres.*",
+    "pgvector.*",
+    "slowapi.*",
+    "pytest_postgresql.*",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: marks tests that require real Helium Postgres and live upstream MCP (deselect with '-m not integration')",
+]
