@@ -67,9 +67,6 @@ class Settings(BaseSettings):
     mcp_server_port: int = 5000
     log_level: str = "INFO"
 
-    # Routing — registered namespace names
-    mneme_namespaces: list[str] = ["pg_main", "pinecone_main", "saaz_demo", "default"]
-
     # Memory
     embedding_model: str = "text-embedding-3-small"
 

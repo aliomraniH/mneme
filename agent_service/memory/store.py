@@ -40,9 +40,12 @@ def migrations_dir() -> Path:
 
 
 async def apply_pending_migrations(pool: AsyncConnectionPool) -> None:  # type: ignore[type-arg]
-    """Apply only 0002_sessions.sql (0001 is already applied on Helium)."""
+    """Apply post-0001 migrations (0001 was applied by the Replit Agent on Helium)."""
     mdir = migrations_dir()
-    pending = [mdir / "0002_sessions.sql"]
+    pending = [
+        mdir / "0002_sessions.sql",
+        mdir / "0003_database_registry.sql",
+    ]
     existing = [p for p in pending if p.exists()]
     if existing:
         await run_migrations(pool, *existing)

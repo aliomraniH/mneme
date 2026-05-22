@@ -19,6 +19,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start neon-mcp"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -31,6 +35,22 @@ waitForPort = 5000
 [workflows.workflow.metadata]
 outputType = "webview"
 
+[[workflows.workflow]]
+name = "Start neon-mcp"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "uvicorn neon_mcp.server:app --host 0.0.0.0 --port 3000"
+waitForPort = 3000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 3000
+externalPort = 3002
+
 [[ports]]
 localPort = 5000
 externalPort = 80
@@ -42,4 +62,20 @@ run = ["uvicorn", "agent_service.server:app", "--host", "0.0.0.0", "--port", "50
 [userenv]
 
 [userenv.shared]
-UPSTREAM_DB_MCP_URL = "https://saaz-aloomrani.replit.app/mcp"
+# ── mneme upstream databases ────────────────────────────────────────────────
+# JSON mapping of namespace → MCP URL.  Add a new entry here when you deploy
+# a new db_mcp instance.  Also register it via the register_database tool so
+# it appears in the DB registry for future restarts.
+UPSTREAM_DB_MCP_SERVERS = "{\"saaz_demo\":\"https://saaz-aloomrani.replit.app/mcp\",\"neon_purple_kite\":\"http://localhost:3000/mcp/\"}"
+
+# JSON mapping of namespace → routing-keyword list.  Keywords are matched
+# against tool names and SQL params to assign audit rows to the right namespace.
+NAMESPACE_ROUTING_KEYWORDS = "{\"saaz_demo\":[\"artist\",\"song\",\"saaz\",\"genre\",\"persian\",\"jazz\",\"album\",\"saaz_\"],\"neon_purple_kite\":[\"neon_\",\"patient\",\"mrn\",\"medical\",\"clinical\",\"insurance\",\"neon_purple_kite\"],\"pg_main\":[\"postgres\",\"pg_main\"],\"pinecone_main\":[\"pinecone\",\"embedding\",\"vector\"]}"
+
+# ── neon-purple-kite db_mcp instance config ─────────────────────────────────
+# These configure the generic db_mcp/server.py for the neon-purple-kite DB.
+# neon_mcp/server.py calls os.environ.setdefault() with the same values so
+# setting them here is optional — they're shown explicitly for clarity.
+DB_MCP_TOOL_PREFIX = "neon"
+DB_MCP_NAME = "neon-purple-kite"
+DB_MCP_DATABASE_URL_ENV = "DATABASE_URL_NEON_PURPLE_KITE"
