@@ -22,7 +22,7 @@
 | Integration tests | ✅ passing | All 3 tests in `tests/integration/test_smoke.py` green |
 | Vercel provisioner | ✅ done | `provision_database` + `list_database_regions`; get-or-error semantics (dashboard-first) |
 | DB registry (registered_database table + 5 CRUD tools) | ✅ done | migration 0003, `agent_service/db_registry.py`, 5 tests |
-| Generic db_mcp server (env-driven tool prefix) | ✅ done | `db_mcp/server.py`; neon_mcp is now a 5-line shim |
+| Generic db_mcp server (env-driven tool prefix) | ✅ done | `db_mcp/server.py`; one binary, any DB — no per-database Python files |
 
 **Phase 1 exit criterion: ✅ done**
 
@@ -103,9 +103,11 @@ by name (with hyphen/underscore normalisation), and reads secrets via
 
 ### Step 6 — neon-purple-kite wired as second upstream (2026-05-22)
 
-**Architecture**: local `neon_mcp/server.py` (FastMCP on port 3000) proxies the
-`DATABASE_URL_NEON_PURPLE_KITE` Neon database and exposes 4 tools:
-`neon_list_tables`, `neon_describe_table`, `neon_query`, `neon_stats`.
+**Architecture**: `db_mcp/server.py` runs on port 3000, configured via env vars
+(`DB_MCP_TOOL_PREFIX=neon`, `DB_MCP_NAME=neon-purple-kite`,
+`DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE`).
+No per-database Python file — to add a third DB, add a workflow task in `.replit`
+with different env vars and port, pointing at the same `db_mcp.server:app`.
 
 **Config**:
 - `UPSTREAM_DB_MCP_SERVERS = {"saaz_demo":"https://saaz-aloomrani.replit.app/mcp","neon_purple_kite":"http://localhost:3000/mcp/"}`

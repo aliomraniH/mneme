@@ -41,7 +41,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "uvicorn neon_mcp.server:app --host 0.0.0.0 --port 3000"
+args = "DB_MCP_TOOL_PREFIX=neon DB_MCP_NAME=neon-purple-kite DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE uvicorn db_mcp.server:app --host 0.0.0.0 --port 3000"
 waitForPort = 3000
 
 [workflows.workflow.metadata]
