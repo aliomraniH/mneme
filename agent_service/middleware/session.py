@@ -54,7 +54,7 @@ class SessionMiddleware(Middleware):
     upserts the row directly from on_initialize.
     """
 
-    def __init__(self, pool_factory: Callable[[], AsyncConnectionPool]) -> None:  # type: ignore[type-arg]
+    def __init__(self, pool_factory: Callable[[], AsyncConnectionPool]) -> None:
         self._pool_factory = pool_factory
 
     async def on_initialize(
@@ -220,7 +220,7 @@ class SessionMiddleware(Middleware):
 
 
 async def idle_session_reaper(
-    pool_factory: Callable[[], AsyncConnectionPool],  # type: ignore[type-arg]
+    pool_factory: Callable[[], AsyncConnectionPool],
     idle_seconds: int = 1800,
     check_interval_seconds: int = 60,
     shutdown_event: asyncio.Event | None = None,
@@ -258,7 +258,7 @@ async def idle_session_reaper(
             log.warning("idle_reaper_error", error=str(exc))
 
 
-async def mark_sessions_shutdown(pool: AsyncConnectionPool) -> None:  # type: ignore[type-arg]
+async def mark_sessions_shutdown(pool: AsyncConnectionPool) -> None:
     """Mark all open sessions as ended with reason='shutdown'. Called in lifespan teardown."""
     try:
         async with pool.connection() as conn:
