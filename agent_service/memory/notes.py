@@ -9,7 +9,7 @@ from agent_service.memory.episodes import _sanitize
 
 
 async def write_expertise_note(
-    pool: AsyncConnectionPool,  # type: ignore[type-arg]
+    pool: AsyncConnectionPool,
     db_namespace: str,
     note: str,
     confidence: float,
