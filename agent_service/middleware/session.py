@@ -135,7 +135,60 @@ class SessionMiddleware(Middleware):
         call_next: CallNext[mt.CallToolRequestParams, Any],
     ) -> Any:
         fastmcp_ctx = context.fastmcp_context
+        session_id: str | None = None
 
+        # ── Phase 1: ensure the session row EXISTS before the tool executes ──
+        # AuditMiddleware (inner middleware) writes query_episode in its own
+        # finally block, which unwinds BEFORE this finally block.  The FK
+        # query_episode.session_id → mcp_session.session_id therefore requires
+        # the mcp_session row to be present before call_next returns.
+        if fastmcp_ctx is not None:
+            try:
+                fastmcp_sid = fastmcp_ctx.session_id
+
+                http_sid: str | None = None
+                try:
+                    from fastmcp.server.dependencies import get_http_request
+
+                    raw = get_http_request().headers.get("mcp-session-id")
+                    http_sid = _normalize_sid(raw) if raw else None
+                except Exception:
+                    pass
+
+                session_id = http_sid or fastmcp_sid
+
+                # Pop pending metadata captured during on_initialize (first call only).
+                meta = _pending_metadata.pop(fastmcp_sid, None)
+                if meta is not None:
+                    pool = self._pool_factory()
+                    async with pool.connection() as conn:
+                        await conn.execute(
+                            """
+                            INSERT INTO mcp_session (
+                                session_id, client_name, client_version,
+                                client_ip, user_agent
+                            ) VALUES (%s, %s, %s, %s::inet, %s)
+                            ON CONFLICT (session_id) DO NOTHING
+                            """,
+                            (
+                                session_id,
+                                meta["client_name"],
+                                meta["client_version"],
+                                meta["client_ip"],
+                                meta["user_agent"],
+                            ),
+                        )
+                        await conn.commit()
+                    log.info(
+                        "session_started",
+                        session_id=session_id,
+                        client_name=meta["client_name"],
+                        client_ip=meta["client_ip"],
+                    )
+            except Exception as exc:
+                log.warning("session_setup_failed", error=str(exc))
+
+        # ── Phase 2: execute the tool call ──
         had_error = False
         result: Any = None
         try:
@@ -144,52 +197,11 @@ class SessionMiddleware(Middleware):
             had_error = True
             raise
         finally:
-            if fastmcp_ctx is not None:
+            # ── Phase 3: update counters (after AuditMiddleware has already written) ──
+            if session_id is not None:
                 try:
-                    fastmcp_sid = fastmcp_ctx.session_id
-
-                    # Prefer the HTTP transport session ID (always present on tool calls).
-                    http_sid: str | None = None
-                    try:
-                        from fastmcp.server.dependencies import get_http_request
-
-                        raw = get_http_request().headers.get("mcp-session-id")
-                        http_sid = _normalize_sid(raw) if raw else None
-                    except Exception:
-                        pass
-
-                    session_id = http_sid or fastmcp_sid
-
-                    # Pop pending metadata (set during on_initialize for new sessions).
-                    meta = _pending_metadata.pop(fastmcp_sid, None)
-
                     pool = self._pool_factory()
                     async with pool.connection() as conn:
-                        if meta is not None:
-                            # First tool call after a fresh initialize: insert session row.
-                            await conn.execute(
-                                """
-                                INSERT INTO mcp_session (
-                                    session_id, client_name, client_version,
-                                    client_ip, user_agent
-                                ) VALUES (%s, %s, %s, %s::inet, %s)
-                                ON CONFLICT (session_id) DO NOTHING
-                                """,
-                                (
-                                    session_id,
-                                    meta["client_name"],
-                                    meta["client_version"],
-                                    meta["client_ip"],
-                                    meta["user_agent"],
-                                ),
-                            )
-                            log.info(
-                                "session_started",
-                                session_id=session_id,
-                                client_name=meta["client_name"],
-                                client_ip=meta["client_ip"],
-                            )
-
                         await conn.execute(
                             """
                             UPDATE mcp_session

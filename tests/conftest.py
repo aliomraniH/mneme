@@ -47,26 +47,28 @@ async def unit_pool() -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ign
 async def truncate_mneme_tables(
     unit_pool: AsyncConnectionPool,  # type: ignore[type-arg]
 ) -> AsyncGenerator[None, None]:
-    """Truncate all mneme-owned tables after each test.
+    """Truncate all mneme-owned tables before each test for clean isolation.
 
     Tests that touch the DB should request this fixture explicitly, or their
     module should declare:
         pytestmark = pytest.mark.usefixtures("truncate_mneme_tables")
     """
+    _truncate_sql = """
+        TRUNCATE
+            mcp_session,
+            query_episode,
+            expertise_note,
+            cache_event,
+            db_schema_snapshot,
+            column_doc
+        CASCADE
+    """
+    async with unit_pool.connection() as conn:
+        await conn.execute(_truncate_sql)
+        await conn.commit()
     yield
     async with unit_pool.connection() as conn:
-        await conn.execute(
-            """
-            TRUNCATE
-                mcp_session,
-                query_episode,
-                expertise_note,
-                cache_event,
-                db_schema_snapshot,
-                column_doc
-            CASCADE
-            """
-        )
+        await conn.execute(_truncate_sql)
         await conn.commit()
 
 

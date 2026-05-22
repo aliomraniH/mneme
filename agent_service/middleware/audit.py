@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid as _uuid
 from collections.abc import Callable
 from contextlib import suppress
 from typing import Any
@@ -69,8 +70,6 @@ class AuditMiddleware(Middleware):
         user_agent_str: str | None = None
 
         if fastmcp_ctx is not None:
-            with suppress(RuntimeError):
-                session_id = fastmcp_ctx.session_id
             with suppress(Exception):
                 from fastmcp.server.dependencies import get_http_request
 
@@ -79,6 +78,17 @@ class AuditMiddleware(Middleware):
                     req.client.host if req.client else None
                 )
                 user_agent_str = req.headers.get("user-agent")
+                # Use the HTTP transport session ID (same key as SessionMiddleware uses).
+                # Falls back to fastmcp_ctx.session_id for non-HTTP transports.
+                raw_sid = req.headers.get("mcp-session-id")
+                if raw_sid:
+                    try:
+                        session_id = str(_uuid.UUID(raw_sid))
+                    except ValueError:
+                        session_id = raw_sid
+            if session_id is None:
+                with suppress(RuntimeError):
+                    session_id = fastmcp_ctx.session_id
 
         start = time.monotonic()
         error_msg: str | None = None
