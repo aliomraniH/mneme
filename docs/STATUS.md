@@ -97,12 +97,42 @@ by name (with hyphen/underscore normalisation), and reads secrets via
 `GET /v1/storage/stores/{id}/secrets`.  If the named store does not exist it raises a
 `ProvisionError` with dashboard-creation instructions.
 
-**Pending for full step 6 wiring** (requires user action):
-- Add `DATABASE_URL_NEON_PURPLE_KITE=<connection_url>` to Replit Secrets
-- Deploy a DB MCP server for `neon-purple-kite` (second Replit project, saaz-style)
-- Set `UPSTREAM_DB_MCP_SERVERS` to include `"neon_purple_kite": "https://…/mcp"`
-- Add routing keywords for `neon_purple_kite` in `MNEME_NAMESPACE_ROUTING_KEYWORDS`
-- Restart mneme
+---
+
+### Step 6 — neon-purple-kite wired as second upstream (2026-05-22)
+
+**Architecture**: local `neon_mcp/server.py` (FastMCP on port 3000) proxies the
+`DATABASE_URL_NEON_PURPLE_KITE` Neon database and exposes 4 tools:
+`neon_list_tables`, `neon_describe_table`, `neon_query`, `neon_stats`.
+
+**Config**:
+- `UPSTREAM_DB_MCP_SERVERS = {"saaz_demo":"https://saaz-aloomrani.replit.app/mcp","neon_purple_kite":"http://localhost:3000/mcp/"}`
+- `NAMESPACE_ROUTING_KEYWORDS` — JSON with `"neon_purple_kite": ["neon_", "patient", "mrn", ...]`
+- Startup log confirms: `"upstream_db_mcp_servers": ["saaz_demo", "neon_purple_kite"]`
+
+**tools/list** (13 tools total):
+```
+['provision_database', 'list_database_regions',
+ 'saaz_list_tables', 'saaz_describe_table', 'saaz_query',
+ 'saaz_get_artist', 'saaz_list_artists', 'saaz_search_artists', 'saaz_stats',
+ 'neon_list_tables', 'neon_describe_table', 'neon_query', 'neon_stats']
+```
+
+**Routing fix**: env var must be `NAMESPACE_ROUTING_KEYWORDS` (not `MNEME_NAMESPACE_ROUTING_KEYWORDS`)
+— pydantic-settings reads field names directly with no prefix.
+
+**Audit rows** (neon_ tools → `db_namespace = 'neon_purple_kite'`):
+```
+neon_purple_kite  neon_query
+neon_purple_kite  neon_describe_table
+neon_purple_kite  neon_stats
+neon_purple_kite  neon_list_tables
+```
+
+**neon-purple-kite schema** (patients table, 0 synthetic rows):
+`id, mrn, first_name, last_name, birth_date, is_synthetic, …`
+
+**Test suite**: 39 unit tests + 3 integration tests — all pass.
 
 ---
 
