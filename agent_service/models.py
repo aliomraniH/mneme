@@ -88,7 +88,10 @@ def truncate_result_summary(result: Any, max_bytes: int = 4096) -> tuple[dict[st
 
     if len(serialized.encode()) <= max_bytes:
         try:
-            return json.loads(serialized), False
+            parsed = json.loads(serialized)
+            if isinstance(parsed, dict):
+                return parsed, False
+            return {"value": parsed}, False
         except Exception:
             return {"raw": serialized}, False
 

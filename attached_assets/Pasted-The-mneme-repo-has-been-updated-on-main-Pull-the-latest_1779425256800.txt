@@ -1,0 +1,62 @@
+The mneme repo has been updated on main. Pull the latest and complete the Phase 1 wiring. Do these steps in order and stop after each one to report the result.
+
+Step 1 — Pull and install
+
+git pull origin main
+uv sync --extra dev
+
+Confirm uv sync exits cleanly. If any package fails to resolve, stop and report the error.
+
+Step 2 — Apply the new migration
+
+psql "$DATABASE_URL" -f migrations/0002_sessions.sql
+
+This adds the mcp_session table and five new columns to query_episode. It uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS so it is safe to re-run. After it finishes, confirm with:
+
+\d mcp_session
+\d query_episode
+
+Expect mcp_session to exist with 10 columns, and query_episode to have session_id, client_name, client_version, client_ip, user_agent, truncated columns.
+
+Step 3 — Run the unit test suite
+
+make test
+
+This uses pytest-postgresql to spin a local postgres, runs both migrations against it, and executes tests/test_routing.py, tests/test_proxy.py, tests/test_memory.py, and tests/test_audit.py. Expected: all tests pass. If any fail, paste the full failure output and stop.
+
+Step 4 — Boot the server
+
+Start the mneme workflow (the existing "Start application" workflow that runs uvicorn agent_service.server:app --host 0.0.0.0 --port 5000). Wait for it to print ready in the logs, then verify:
+
+curl -s http://localhost:5000/healthz
+curl -s http://localhost:5000/
+
+Expected:
+
+    /healthz → {"status": "ok", "service": "mneme", "db": "ok", ...}
+    / → {"service": "mneme", "phase": "1", ...}
+
+If /healthz returns "db": "error" or the server fails to start, paste the startup logs and stop.
+
+Step 5 — Integration smoke test (Phase 1 exit gate)
+
+MNEME_INTEGRATION=1 MNEME_URL=http://localhost:5000/mcp make test-integration
+
+This runs five tool calls through mneme against the live saaz upstream, then verifies:
+
+    Five query_episode rows written to Helium, including one with source='error' (the DROP TABLE rejection)
+    One mcp_session row with client_name='smoke-test', non-null client_ip and user_agent, total_calls=5, total_errors=1
+    A list_artists call triggers truncated=TRUE on its audit row
+    Idle-session reaper correctly marks a manually back-dated session as end_reason='idle_timeout'
+
+After the smoke test passes, run this query directly against $DATABASE_URL and paste the output:
+
+SELECT genre, count(*) AS n FROM artist GROUP BY genre ORDER BY n DESC;
+SELECT db_namespace, count(*) FROM query_episode GROUP BY db_namespace ORDER BY count(*) DESC;
+SELECT session_id, client_name, total_calls, total_errors FROM mcp_session ORDER BY started_at DESC LIMIT 5;
+
+The second query should show saaz_demo as the dominant namespace. The third should show the smoke-test session with total_calls=5.
+
+If anything fails: paste the exact error and the output of uv pip list | grep -E "fastmcp|psycopg|slowapi|pytest" so the dependency versions can be checked.
+
+Do not proceed to Phase 2 work. Stop after the smoke test and paste results.

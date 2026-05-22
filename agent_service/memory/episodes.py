@@ -4,6 +4,7 @@ import re
 from typing import Any
 from uuid import UUID
 
+from psycopg.types.json import Json
 from psycopg_pool import AsyncConnectionPool
 
 from agent_service.errors import MemoryWriteError
@@ -76,9 +77,9 @@ async def write_episode(
                     "thread_id": episode.thread_id,
                     "tool_name": episode.tool_name,
                     "user_query": episode.user_query,
-                    "tool_params": episode.tool_params,
+                    "tool_params": Json(episode.tool_params),
                     "result_summary": (
-                        safe_summary  # psycopg serializes dict → jsonb
+                        Json(safe_summary) if safe_summary is not None else None
                     ),
                     "row_count": episode.row_count,
                     "duration_ms": episode.duration_ms,

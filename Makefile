@@ -12,7 +12,7 @@ run:
 dev:
 	uvicorn agent_service.server:app --reload --host 127.0.0.1 --port $${MCP_SERVER_PORT:-5000}
 
-# Unit tests only (uses pytest-postgresql, no Helium needed)
+# Unit tests only (connects to Helium via $DATABASE_URL, TRUNCATEs mneme tables between tests)
 test:
 	pytest -q -m "not integration"
 

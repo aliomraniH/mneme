@@ -18,7 +18,7 @@
 | Result summary cap | ✅ done | 4 096-byte cap with `truncated` flag |
 | No-op auth middleware | ✅ done | `RequireAuthMiddleware` pass-through, Phase 2 ready |
 | docs/UPSTREAM.md | ✅ done | Moved from `attached_assets/` |
-| Unit tests (pytest-postgresql) | ✅ done | routing, memory, audit, proxy |
+| Unit tests (Helium + TRUNCATE isolation) | ✅ done | routing, memory, audit, proxy |
 | Integration tests | ✅ written | `tests/integration/`, behind `@pytest.mark.integration` |
 
 **Phase 1 exit criterion:** Claude Code makes 10 tool calls against mneme;

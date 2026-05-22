@@ -1,0 +1,62 @@
+Pull the latest `main` — it now contains the conftest fix that unblocks the test
+suite. The blocker you hit earlier (pytest-postgresql needs pg_config + pgvector
+binaries that aren't in the Nix environment) is resolved: tests now connect to
+Helium directly via $DATABASE_URL and isolate with TRUNCATE between runs. I
+verified `make test` passes locally — 20 passed, 13 skipped. Confirm the same
+in the Replit environment, then complete the Phase 1 acceptance gate.
+
+BRANCHING: Work directly on `main` for everything below. Do NOT create a feature
+branch. `git checkout main && git pull origin main` first, make all commits on
+`main`, and `git push origin main` when done.
+
+Do this in order, stopping if any step fails:
+
+STEP 3 — Unit tests.
+  Run `make install` then `make test`. Expect: 20 passed, 13 skipped (the
+  skipped ones are @pytest.mark.integration). Note: `make test` now requires
+  $DATABASE_URL to be set (Helium) — it TRUNCATEs only mneme-owned tables
+  (query_episode, expertise_note, cache_event, mcp_session, db_schema_snapshot,
+  column_doc) between tests; it never touches the saaz tables. If tests skip
+  entirely with "DATABASE_URL not set", that's an environment problem — stop
+  and report it.
+
+STEP 3b — Stale comments. The Makefile `test:` target comment still says
+  "uses pytest-postgresql, no Helium needed" and docs/STATUS.md line 21 says
+  "Unit tests (pytest-postgresql)". Both are now wrong. Fix them to reflect
+  that unit tests run against Helium with TRUNCATE isolation.
+
+STEP 3c — Migration. Confirm migrations/0002_sessions.sql is applied on Helium
+  (`\dt` should show mcp_session, and query_episode should have the session_id
+  / client_name / truncated columns). It's applied automatically on server
+  startup via apply_pending_migrations, but run `make migrate` if needed.
+
+STEP 4 — Boot the server. Run `make run` and verify:
+  - GET /healthz returns 200 with a healthy pool check
+  - GET / returns the root response
+  - The FastMCP server answers tools/list on /mcp
+  Report the /healthz JSON body.
+
+STEP 5 — Phase 1 acceptance gate (the key deliverable). With mneme running and
+  reachable, run `MNEME_INTEGRATION=1 make test-integration`. If the integration
+  tests target a deployed URL, set MNEME_URL to the running instance. All 3
+  integration tests in tests/integration/test_smoke.py should pass:
+    - test_mneme_proxies_saaz_tools (5 tool calls → audit rows + session row)
+    - test_idle_session_reaper (reaper marks aged session idle_timeout)
+    - test_truncated_flag_on_large_result (>4KB result → truncated=True)
+  Then run the manual smoke query end-to-end through mneme:
+    SELECT genre, count(*) AS n FROM artist GROUP BY genre ORDER BY n DESC;
+  And confirm the audit landed:
+    SELECT db_namespace, tool_name, count(*) FROM query_episode
+    GROUP BY db_namespace, tool_name ORDER BY count(*) DESC;
+  The query rows should be in db_namespace = 'saaz_demo'.
+
+STEP 6 — Update docs/STATUS.md: flip the Phase 1 exit criterion to done, paste
+  the genre breakdown and the audit-row counts as evidence.
+
+STEP 7 — Commit ALL changes from steps 3b and 6 directly to `main` with a clear
+  message, then `git push origin main`. Everything stays on `main` — no feature
+  branch, no pull request.
+
+Hard rules still apply: pull-only (no writes to saaz tables), no LangGraph agent
+loop, no advisories — Phase 1 is observe-and-remember only. If anything
+contradicts CLAUDE.md or docs/ARCHITECTURE.md, surface it before proceeding.

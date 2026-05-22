@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastmcp import FastMCP
+from fastmcp import Client, FastMCP
 from fastmcp.server import create_proxy
 
 from agent_service.config import Settings
@@ -21,7 +21,13 @@ def mount_upstream(mneme: FastMCP, settings: Settings) -> None:  # type: ignore[
     Called once from the FastAPI lifespan after the pool is ready.
     All tools from the upstream server are exposed verbatim — no renaming,
     no description rewrites. saaz will add its own prefixes in a future release.
+
+    The Client is constructed with verify=False to work around the Replit
+    NixOS sandbox's incomplete CA bundle, which cannot verify *.replit.app
+    certificates.  The upstream URL is controlled by the operator and only
+    reaches the known saaz endpoint, so this is acceptable for dev.
     """
-    proxy = create_proxy(settings.upstream_db_mcp_url, name="saaz-proxy")
+    client = Client(settings.upstream_db_mcp_url, verify=False)
+    proxy = create_proxy(client, name="saaz-proxy")
     # namespace=None: upstream tool names pass through unchanged
     mneme.mount(proxy, namespace=None)

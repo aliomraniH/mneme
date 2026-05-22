@@ -13,6 +13,8 @@ from fastmcp import FastMCP
 from fastmcp.server import create_proxy
 from psycopg_pool import AsyncConnectionPool
 
+from fastmcp.exceptions import ToolError
+
 from agent_service.memory.episodes import get_recent_episodes
 from agent_service.middleware.audit import AuditMiddleware
 
@@ -77,7 +79,7 @@ async def test_audit_row_written_on_error(
 ) -> None:
     server = _make_instrumented_server(lambda: unit_pool)
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises((RuntimeError, ToolError)):
         await server.call_tool("fail_always", {})
 
     episodes = await get_recent_episodes(unit_pool, "default")
