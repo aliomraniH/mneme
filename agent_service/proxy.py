@@ -6,7 +6,7 @@ from fastmcp.server import create_proxy
 from agent_service.config import Settings
 
 
-def build_mneme_server() -> FastMCP:  # type: ignore[type-arg]
+def build_mneme_server() -> FastMCP:
     """Construct the top-level FastMCP server at module scope.
 
     No pool or upstream client is created here. Both are deferred to
@@ -15,20 +15,25 @@ def build_mneme_server() -> FastMCP:  # type: ignore[type-arg]
     return FastMCP("mneme", instructions="mneme memory-and-advisory MCP middleware")
 
 
-def mount_upstream(mneme: FastMCP, settings: Settings) -> None:  # type: ignore[type-arg]
-    """Mount one proxy per configured upstream database MCP server.
+def mount_upstream_map(
+    mneme: FastMCP,
+    servers: dict[str, str],
+) -> None:
+    """Mount one proxy per entry in `servers` (namespace → URL mapping).
 
-    Called once from the FastAPI lifespan after the pool is ready. Each
-    upstream is keyed by its namespace (from UPSTREAM_DB_MCP_SERVERS, or
-    "default" when only UPSTREAM_DB_MCP_URL is set). All tools are exposed
-    verbatim — no renaming, no description rewrites.
-
-    verify=False works around the Replit NixOS sandbox's incomplete CA bundle
-    which cannot verify *.replit.app certificates. Upstream URLs are
-    operator-controlled so this is acceptable for dev/staging.
+    Tool names are passed through verbatim (namespace=None).
+    verify=False works around the Replit NixOS sandbox's incomplete CA bundle.
     """
-    for namespace, url in settings.all_upstream_servers().items():
+    for namespace, url in servers.items():
         client = Client(url, verify=False)
         proxy = create_proxy(client, name=f"{namespace}-proxy")
-        # namespace=None: upstream tool names pass through unchanged
         mneme.mount(proxy, namespace=None)
+
+
+def mount_upstream(mneme: FastMCP, settings: Settings) -> None:
+    """Mount upstreams from Settings only (env-var config, no DB registry).
+
+    Kept for backward compatibility with tests and one-off scripts.
+    The lifespan in server.py uses mount_upstream_map with the merged map.
+    """
+    mount_upstream_map(mneme, settings.all_upstream_servers())
