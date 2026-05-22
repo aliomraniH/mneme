@@ -1,8 +1,8 @@
 """Shared pytest fixtures.
 
 Two tiers:
-  Unit (default):    pytest-postgresql spins a local postgres process,
-                     runs both migrations, truncates between tests.
+  Unit (default):    Uses $DATABASE_URL (Helium on Replit) with TRUNCATE isolation.
+                     Runs both migrations on startup, truncates between tests.
   Integration:       @pytest.mark.integration, skipped unless MNEME_INTEGRATION=1
                      or `make test-integration`. Hits real Helium + live saaz upstream.
 """
@@ -16,43 +16,30 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from psycopg_pool import AsyncConnectionPool
-from pytest_postgresql.factories import postgresql_proc
 
-# Session-scoped process: one postgres server for the whole test run.
-postgresql_my_proc = postgresql_proc()
+from agent_service.memory.store import apply_pending_migrations, create_pool
 
 
 # ---------------------------------------------------------------------------
-# Unit-tier pool fixture (session-scoped — shares one PG process)
+# Unit-tier pool fixture (uses $DATABASE_URL directly, isolated via TRUNCATE)
 # ---------------------------------------------------------------------------
 @pytest_asyncio.fixture(scope="session")
-async def unit_pool(
-    postgresql_my_proc,  # type: ignore[no-untyped-def]
-) -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ignore[type-arg]
-    """Session-scoped pool pointing at the local pytest-postgresql database."""
-    proc = postgresql_my_proc
-    # Build a libpq connection string from the process attributes
-    password_part = f"password={proc.password} " if proc.password else ""
-    conninfo = (
-        f"host={proc.host} port={proc.port} "
-        f"user={proc.user} dbname={proc.dbname} "
-        f"{password_part}"
-    )
+async def unit_pool() -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ignore[type-arg]
+    """Session-scoped pool pointing at $DATABASE_URL (Helium on Replit).
 
-    pool: AsyncConnectionPool = AsyncConnectionPool(  # type: ignore[type-arg]
-        conninfo=conninfo,
-        min_size=1,
-        max_size=5,
-        open=False,
-    )
-    await pool.open()
+    Applies both migrations on startup (idempotent). Tests truncate mneme tables
+    between runs for isolation.
+    """
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        pytest.skip("DATABASE_URL not set — unit tests need Helium access")
 
-    # Run both migrations against the local test database
+    pool = await create_pool(database_url)
+
+    # Apply both migrations (idempotent; 0001 was already applied by Replit Agent,
+    # but we run it anyway to ensure the test DB is in sync)
     mdir = Path(__file__).parent.parent / "migrations"
-    async with pool.connection() as conn:
-        await conn.execute((mdir / "0001_init.sql").read_text())
-        await conn.execute((mdir / "0002_sessions.sql").read_text())
-        await conn.commit()
+    await apply_pending_migrations(pool)
 
     yield pool
     await pool.close()
