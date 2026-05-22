@@ -55,13 +55,27 @@ def _get_pool() -> AsyncConnectionPool:  # type: ignore[type-arg]
     return _pool
 
 
+# Namespace routing keyword overrides (populated from settings in lifespan).
+# None means AuditMiddleware falls back to routing.py's built-in defaults.
+_namespace_keywords: dict[str, list[str]] | None = None
+
+
+def _get_namespace_keywords() -> dict[str, list[str]] | None:
+    return _namespace_keywords
+
+
 # ---------------------------------------------------------------------------
 # Module-level: FastMCP server (proxy mounted in lifespan)
 # ---------------------------------------------------------------------------
 mneme = build_mneme_server()
 mneme.add_middleware(TimeoutMiddleware(timeout_seconds=30.0))
 mneme.add_middleware(SessionMiddleware(pool_factory=_get_pool))
-mneme.add_middleware(AuditMiddleware(pool_factory=_get_pool))
+mneme.add_middleware(
+    AuditMiddleware(
+        pool_factory=_get_pool,
+        namespace_keywords_factory=_get_namespace_keywords,
+    )
+)
 
 # Build the ASGI transport once at module scope so the lifespan object is
 # stable.  path="/" places the MCP route at "/" within the sub-app, meaning
@@ -96,7 +110,7 @@ def _configure_logging(log_level: str) -> None:
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    global _pool
+    global _pool, _namespace_keywords
 
     settings: Settings = get_settings()
     _configure_logging(settings.log_level)
@@ -104,12 +118,16 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     log = structlog.get_logger(__name__)
     log.info("startup", **settings.as_log_safe())
 
+    # Populate namespace routing keyword overrides from config (if any).
+    # Empty dict means "use built-in defaults in routing.py".
+    _namespace_keywords = settings.namespace_routing_keywords or None
+
     # Create pool and apply the 0002 migration (0001 already applied on Helium)
     _pool = await create_pool(settings.database_url_str())
     app.state.pool = _pool
     await apply_pending_migrations(_pool)
 
-    # Mount the upstream saaz MCP proxy
+    # Mount one proxy per configured upstream database MCP server
     mount_upstream(mneme, settings)
 
     # Start idle session reaper background task

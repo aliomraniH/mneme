@@ -24,15 +24,24 @@ class AuditMiddleware(Middleware):
     """Intercepts every tool call, writes one query_episode row, and injects
     meta.audit_id into the response.
 
-    Constructed at module scope with a pool_factory callable so the
-    actual pool can be deferred to the FastAPI lifespan.
+    Constructed at module scope with a pool_factory callable so the actual pool
+    can be deferred to the FastAPI lifespan.  namespace_keywords_factory mirrors
+    the same pattern: when set it returns per-namespace routing keyword overrides
+    loaded from config; when None, routing.py's built-in defaults are used.
 
     Failures inside the middleware are logged and silently dropped — the
     call always passes through.
     """
 
-    def __init__(self, pool_factory: Callable[[], AsyncConnectionPool]) -> None:  # type: ignore[type-arg]
+    def __init__(
+        self,
+        pool_factory: Callable[[], AsyncConnectionPool],  # type: ignore[type-arg]
+        namespace_keywords_factory: (
+            Callable[[], dict[str, list[str]] | None] | None
+        ) = None,
+    ) -> None:
         self._pool_factory = pool_factory
+        self._namespace_keywords_factory = namespace_keywords_factory
 
     async def on_call_tool(
         self,
@@ -41,7 +50,12 @@ class AuditMiddleware(Middleware):
     ) -> ToolResult:
         tool_name: str = context.message.name
         params: dict[str, Any] = context.message.arguments or {}
-        db_namespace = route_to_namespace(tool_name, params)
+        kws = (
+            self._namespace_keywords_factory()
+            if self._namespace_keywords_factory is not None
+            else None
+        )
+        db_namespace = route_to_namespace(tool_name, params, namespace_keywords=kws)
 
         # Pre-generate audit_id so it's available in both success and error paths
         audit_id: UUID = uuid4()

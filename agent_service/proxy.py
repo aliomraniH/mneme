@@ -16,18 +16,19 @@ def build_mneme_server() -> FastMCP:  # type: ignore[type-arg]
 
 
 def mount_upstream(mneme: FastMCP, settings: Settings) -> None:  # type: ignore[type-arg]
-    """Create a proxy to the upstream saaz MCP and mount it on mneme.
+    """Mount one proxy per configured upstream database MCP server.
 
-    Called once from the FastAPI lifespan after the pool is ready.
-    All tools from the upstream server are exposed verbatim — no renaming,
-    no description rewrites. saaz will add its own prefixes in a future release.
+    Called once from the FastAPI lifespan after the pool is ready. Each
+    upstream is keyed by its namespace (from UPSTREAM_DB_MCP_SERVERS, or
+    "default" when only UPSTREAM_DB_MCP_URL is set). All tools are exposed
+    verbatim — no renaming, no description rewrites.
 
-    The Client is constructed with verify=False to work around the Replit
-    NixOS sandbox's incomplete CA bundle, which cannot verify *.replit.app
-    certificates.  The upstream URL is controlled by the operator and only
-    reaches the known saaz endpoint, so this is acceptable for dev.
+    verify=False works around the Replit NixOS sandbox's incomplete CA bundle
+    which cannot verify *.replit.app certificates. Upstream URLs are
+    operator-controlled so this is acceptable for dev/staging.
     """
-    client = Client(settings.upstream_db_mcp_url, verify=False)
-    proxy = create_proxy(client, name="saaz-proxy")
-    # namespace=None: upstream tool names pass through unchanged
-    mneme.mount(proxy, namespace=None)
+    for namespace, url in settings.all_upstream_servers().items():
+        client = Client(url, verify=False)
+        proxy = create_proxy(client, name=f"{namespace}-proxy")
+        # namespace=None: upstream tool names pass through unchanged
+        mneme.mount(proxy, namespace=None)

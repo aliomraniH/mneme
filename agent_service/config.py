@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 from typing import Any
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,7 +16,40 @@ class Settings(BaseSettings):
 
     # Required
     database_url: SecretStr
-    upstream_db_mcp_url: str
+
+    # Upstream DB MCP server(s).
+    # UPSTREAM_DB_MCP_URL: single server, backward-compatible (assigned to "default" namespace).
+    # UPSTREAM_DB_MCP_SERVERS: JSON mapping of namespace→URL for multiple databases.
+    #   Example: {"saaz_demo": "https://saaz.replit.app/mcp", "pg_main": "https://pg.replit.app/mcp"}
+    # At least one must be set.
+    upstream_db_mcp_url: str | None = None
+    upstream_db_mcp_servers: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _require_at_least_one_upstream(self) -> Settings:
+        if not self.upstream_db_mcp_url and not self.upstream_db_mcp_servers:
+            raise ValueError(
+                "Set UPSTREAM_DB_MCP_URL (single server) or "
+                "UPSTREAM_DB_MCP_SERVERS (JSON mapping of namespace→URL)."
+            )
+        return self
+
+    def all_upstream_servers(self) -> dict[str, str]:
+        """Return all configured upstream servers as a namespace→URL mapping.
+
+        UPSTREAM_DB_MCP_SERVERS takes precedence. If only UPSTREAM_DB_MCP_URL
+        is set, it is assigned to the 'default' namespace.
+        """
+        if self.upstream_db_mcp_servers:
+            return dict(self.upstream_db_mcp_servers)
+        assert self.upstream_db_mcp_url is not None
+        return {"default": self.upstream_db_mcp_url}
+
+    # Per-namespace routing keywords (JSON mapping).
+    # When set, overrides the built-in defaults in routing.py for all namespaces.
+    # Example: {"my_db": ["keyword1", "keyword2"], "pinecone_main": ["pinecone"]}
+    # Leave empty to use routing.py's built-in defaults.
+    namespace_routing_keywords: dict[str, list[str]] = Field(default_factory=dict)
 
     # Optional — needed for Phase 2+
     anthropic_api_key: SecretStr | None = None
@@ -29,7 +62,7 @@ class Settings(BaseSettings):
     mcp_server_port: int = 5000
     log_level: str = "INFO"
 
-    # Routing
+    # Routing — registered namespace names
     mneme_namespaces: list[str] = ["pg_main", "pinecone_main", "saaz_demo", "default"]
 
     # Memory
@@ -52,7 +85,7 @@ class Settings(BaseSettings):
 
     def as_log_safe(self) -> dict[str, Any]:
         return {
-            "upstream_db_mcp_url": self.upstream_db_mcp_url,
+            "upstream_db_mcp_servers": list(self.all_upstream_servers().keys()),
             "mcp_server_host": self.mcp_server_host,
             "mcp_server_port": self.mcp_server_port,
             "log_level": self.log_level,

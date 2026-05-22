@@ -3,32 +3,39 @@ from __future__ import annotations
 import json
 from typing import Any
 
-# Keywords that identify the saaz Persian-songwriter demo dataset.
-_SAAZ_KEYWORDS: frozenset[str] = frozenset({"artist", "song", "persian", "jazz", "saaz", "genre"})
+# Built-in defaults — used when no namespace_routing_keywords config is provided.
+# Priority is determined by dict insertion order (first match wins).
+# Override via MNEME_NAMESPACE_ROUTING_KEYWORDS env var (JSON mapping).
+#
+# "embedding_index" is used instead of bare "vector" — pgvector uses that term too.
+_DEFAULT_NAMESPACE_KEYWORDS: dict[str, list[str]] = {
+    "saaz_demo": ["artist", "song", "persian", "jazz", "saaz", "genre"],
+    "pinecone_main": ["pinecone", "embedding_index"],
+    "pg_main": ["postgres", "pg_", "sql"],
+}
 
-# Keywords that route to a dedicated Pinecone namespace.
-# Deliberately excludes "vector" alone — pgvector uses that word too.
-_PINECONE_KEYWORDS: frozenset[str] = frozenset({"pinecone", "embedding_index"})
 
-# Keywords that route to the main Postgres namespace.
-_PG_KEYWORDS: frozenset[str] = frozenset({"postgres", "pg_", "sql"})
+def route_to_namespace(
+    tool_name: str,
+    params: dict[str, Any],
+    *,
+    namespace_keywords: dict[str, list[str]] | None = None,
+) -> str:
+    """Return the db_namespace for a tool call.
 
+    Iterates over namespace_keywords (or built-in defaults when None/empty) in
+    order; returns the first namespace whose keywords appear in the combined
+    tool_name+params blob.  Falls back to "default" when nothing matches.
 
-def route_to_namespace(tool_name: str, params: dict[str, Any]) -> str:
-    """Keyword-based namespace routing for Phase 1.
-
-    Priority: saaz_demo > pinecone_main > pg_main > default.
-    Phase 2 will swap the body for a small LLM router on ambiguous cases
-    without touching this signature.
+    Phase 2 will add an LLM fallback for ambiguous cases without changing
+    this signature.
     """
+    keywords = namespace_keywords if namespace_keywords else _DEFAULT_NAMESPACE_KEYWORDS
     blob = (tool_name + " " + _safe_dumps(params)).lower()
 
-    if any(kw in blob for kw in _SAAZ_KEYWORDS):
-        return "saaz_demo"
-    if any(kw in blob for kw in _PINECONE_KEYWORDS):
-        return "pinecone_main"
-    if any(kw in blob for kw in _PG_KEYWORDS):
-        return "pg_main"
+    for ns, kws in keywords.items():
+        if any(kw in blob for kw in kws):
+            return ns
     return "default"
 
 
