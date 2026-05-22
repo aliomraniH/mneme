@@ -24,6 +24,7 @@ Supported regions (Vercel / Neon region codes):
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -57,7 +58,7 @@ class VercelPostgresProvisioner:
     def _params(self) -> dict[str, str]:
         return {"teamId": self._team_id} if self._team_id else {}
 
-    async def _list_stores(self, client: httpx.AsyncClient) -> list[dict]:
+    async def _list_stores(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
         """Return all Neon/Postgres integration stores on the account."""
         resp = await client.get(
             f"{_API_BASE}/v1/storage/stores",
@@ -111,7 +112,7 @@ class VercelPostgresProvisioner:
         # Match by exact name first, then by slug/namespace equivalence
         # (e.g. "test-mneme-db" ↔ "test_mneme_db").
         slug = name.replace("-", "_").lower()
-        match: dict | None = None
+        match: dict[str, Any] | None = None
         for s in stores:
             store_name = s.get("name", "")
             if store_name == name or store_name.replace("-", "_").lower() == slug:
@@ -142,11 +143,6 @@ class VercelPostgresProvisioner:
             or secrets.get("POSTGRES_URL_NON_POOLING")
             or ""
         )
-        conn_url_unpooled = (
-            secrets.get("DATABASE_URL_UNPOOLED")
-            or secrets.get("POSTGRES_URL_NON_POOLING")
-            or conn_url
-        )
         host = secrets.get("PGHOST") or secrets.get("POSTGRES_HOST") or _host_from_dsn(conn_url)
         db   = secrets.get("PGDATABASE") or secrets.get("POSTGRES_DATABASE") or "neondb"
         user = secrets.get("PGUSER") or secrets.get("POSTGRES_USER") or ""
@@ -171,7 +167,7 @@ class VercelPostgresProvisioner:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _store_is_postgres(store: dict) -> bool:
+def _store_is_postgres(store: dict[str, Any]) -> bool:
     """Return True if this store is a Postgres / Neon database."""
     product = store.get("product") or {}
     tags = product.get("tags") or []
