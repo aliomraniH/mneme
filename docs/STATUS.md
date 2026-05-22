@@ -160,8 +160,11 @@ neon_purple_kite  neon_list_tables
 | `saaz_search_artists` (semantic) | ✅ | pgvector ranked results, 100% embedding coverage |
 | `list_registered_databases` | ✅ | Returns registry with audit trail |
 | `get_database_info` | ✅ | Returns entry + call stats |
-| `neon_list_tables` | ❌ SSL error | local `neon_mcp/server.py` not running on port 3000 |
-| `neon_stats` | ❌ empty `{}` | Same root cause |
+| `neon_list_tables` | ✅ `[]` | public schema empty (DB unseeded); cold-start SSL reset is transient |
+| `neon_stats` | ✅ `{}` | correct — no public tables |
+| `neon_query` SELECT / version | ✅ | Connected to PostgreSQL 17.10 on `neondb` |
+| `neon_query` neon_auth schema | ✅ | 9 neon-managed auth tables discovered via information_schema |
+| `neon_describe_table` patients | ❌ not found | patients table was never seeded (planned in Step 6) |
 
 **Data integrity checks** (via live `saaz_query` probes):
 - Embedding coverage: **100%** across all 4 genres (30/30 artists)
@@ -179,7 +182,9 @@ neon_purple_kite  neon_list_tables
 | `tests/test_prompt_battery.py` | **19** | 0 | New: realistic Claude usage scenarios |
 | `tests/integration/test_mcp_capabilities.py` | pending | — | Requires `MNEME_INTEGRATION=1` + live server |
 
-**Known issue**: `neon_mcp/server.py` local process not started at boot time. Start it or add it to Replit's `.replit` run command to fix `neon_*` tools.
+**Both databases are reachable via MCP.** The `neon_list_tables` SSL error seen on first call was a cold-start stale pool connection — it clears after any warm query. Root cause: the Neon serverless connection pool drops idle SSL sessions; the first call hits the stale connection, psycopg recycles it, subsequent calls succeed.
+
+**neon-purple-kite state**: DB connected (PostgreSQL 17.10, `neondb`), public schema empty (no user tables seeded). `neon_auth` schema has 9 Neon-managed auth tables. The `patients` table from Step 6 planning was never created — seed script still needed.
 
 ---
 

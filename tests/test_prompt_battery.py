@@ -286,6 +286,41 @@ def test_routing_never_raises(tool_name: str, params: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Routing correctness: neon tools → neon_purple_kite namespace
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool_name,params,expected_ns",
+    [
+        ("neon_list_tables", {}, "neon_purple_kite"),
+        ("neon_query", {"sql": "SELECT 1"}, "neon_purple_kite"),
+        ("neon_stats", {}, "neon_purple_kite"),
+        ("neon_describe_table", {"table_name": "patients"}, "neon_purple_kite"),
+        ("saaz_list_artists", {}, "saaz_demo"),
+        ("saaz_query", {"sql": "SELECT * FROM artist"}, "saaz_demo"),
+        ("saaz_stats", {}, "saaz_demo"),
+        ("unknown_tool", {}, "default"),
+    ],
+)
+def test_routing_assigns_correct_namespace(
+    tool_name: str, params: dict[str, Any], expected_ns: str
+) -> None:
+    """Both saaz and neon tools must route to their correct namespaces."""
+    result = route_to_namespace(
+        tool_name,
+        params,
+        namespace_keywords={
+            "saaz_demo": ["saaz_", "artist", "song", "genre", "persian"],
+            "neon_purple_kite": ["neon_", "patient", "mrn"],
+        },
+    )
+    assert result == expected_ns, (
+        f"tool={tool_name!r} params={params} → got {result!r}, expected {expected_ns!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Scenario 9 — Stats health check
 # ---------------------------------------------------------------------------
 

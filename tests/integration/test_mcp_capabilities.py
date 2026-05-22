@@ -591,43 +591,129 @@ async def test_get_database_info_returns_stats(
 
 
 # ===========================================================================
-# R8 — Neon connectivity (expected to fail while local server is down)
+# R8 — Neon connectivity
+#
+# Live probe findings (2026-05-22):
+#   - neon_query works: connected to PostgreSQL 17.10 on neondb (Neon serverless)
+#   - neon_list_tables returns [] — public schema has no user tables yet
+#   - neon_stats returns {} — correct, mirrors empty public schema
+#   - neon_auth schema has 9 tables (Neon-managed auth); visible via neon_query
+#   - The initial "SSL connection has been closed unexpectedly" on neon_list_tables
+#     was a cold-start stale pool connection; clears after any warm query.
+#   - patients table (mentioned in STATUS.md Step 6) was never seeded.
 # ===========================================================================
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason="neon_mcp local server (port 3000) not running; SSL connection fails",
-    strict=False,
-)
-async def test_neon_list_tables_connectivity(
+async def test_neon_query_basic_connectivity(
     mneme_session: tuple[httpx.AsyncClient, str],
 ) -> None:
-    """neon_list_tables should return table list when neon_mcp server is up.
-
-    Currently xfail: the local neon_mcp/server.py is not running, so the
-    upstream SSL connection is broken.  Start neon_mcp on port 3000 to fix.
-    """
+    """neon_query SELECT 1 must succeed — confirms Neon DB is reachable."""
     client, sid = mneme_session
-    payload = await _call_tool(client, sid, "neon_list_tables", {})
+    payload = await _call_tool(client, sid, "neon_query", {"sql": "SELECT 1 AS ping"})
     result = payload["result"]
-    # neon-purple-kite has a patients table
-    tables = {r["table_name"] for r in result}
-    assert "patients" in tables
+    assert result["row_count"] == 1
+    assert result["rows"][0]["ping"] == 1
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    reason="neon_mcp local server not running; neon_stats returns {} or errors",
-    strict=False,
-)
-async def test_neon_stats_returns_table_counts(
+async def test_neon_query_confirms_postgres_version(
     mneme_session: tuple[httpx.AsyncClient, str],
 ) -> None:
-    """neon_stats should return per-table row counts for neon-purple-kite."""
+    """neon_query must return the Postgres version string for neon-purple-kite."""
+    client, sid = mneme_session
+    payload = await _call_tool(
+        client, sid, "neon_query", {"sql": "SELECT current_database(), version()"}
+    )
+    result = payload["result"]
+    assert result["row_count"] == 1
+    row = result["rows"][0]
+    assert row["current_database"] == "neondb"
+    assert "PostgreSQL" in row["version"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_neon_list_tables_public_schema_empty(
+    mneme_session: tuple[httpx.AsyncClient, str],
+) -> None:
+    """neon_list_tables must return [] — public schema has no user tables yet.
+
+    The neon-purple-kite DB is provisioned but unseeded.  This test confirms
+    the tool works (no error) and correctly reflects the empty schema.
+    """
+    client, sid = mneme_session
+    # Warm the pool first so cold-start SSL reset doesn't interfere
+    await _call_tool(client, sid, "neon_query", {"sql": "SELECT 1"})
+    payload = await _call_tool(client, sid, "neon_list_tables", {})
+    result = payload["result"]
+    assert isinstance(result, list), f"Expected list, got {type(result)}"
+    assert result == [], f"Expected empty public schema, got: {result}"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_neon_stats_empty_public_schema(
+    mneme_session: tuple[httpx.AsyncClient, str],
+) -> None:
+    """neon_stats must return {} when public schema has no tables."""
     client, sid = mneme_session
     payload = await _call_tool(client, sid, "neon_stats", {})
     result = payload["result"]
-    assert result  # must not be empty dict
+    assert result == {}, f"Expected empty stats for unseeded DB, got: {result}"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_neon_query_discovers_neon_auth_schema(
+    mneme_session: tuple[httpx.AsyncClient, str],
+) -> None:
+    """neon_auth schema (Neon-managed) must be visible via neon_query.
+
+    neon_list_tables only shows the public schema; neon_query can reach
+    information_schema to discover the full picture.
+    """
+    client, sid = mneme_session
+    payload = await _call_tool(
+        client,
+        sid,
+        "neon_query",
+        {
+            "sql": (
+                "SELECT table_schema, COUNT(*) AS n "
+                "FROM information_schema.tables "
+                "WHERE table_schema NOT IN ('pg_catalog', 'information_schema') "
+                "GROUP BY table_schema ORDER BY table_schema"
+            )
+        },
+    )
+    result = payload["result"]
+    schemas = {r["table_schema"] for r in result["rows"]}
+    assert "neon_auth" in schemas, (
+        f"Expected neon_auth schema to exist, found: {schemas}"
+    )
+    neon_auth_row = next(r for r in result["rows"] if r["table_schema"] == "neon_auth")
+    assert neon_auth_row["n"] >= 9, (
+        f"Expected >=9 tables in neon_auth, got {neon_auth_row['n']}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_neon_query_dml_rejected(
+    mneme_session: tuple[httpx.AsyncClient, str],
+) -> None:
+    """neon_query must reject DML just like saaz_query — pull-only on both DBs."""
+    client, sid = mneme_session
+    payload = await _call_tool(
+        client,
+        sid,
+        "neon_query",
+        {"sql": "INSERT INTO pg_tables (schemaname) VALUES ('hack')"},
+    )
+    error_text = str(payload).lower()
+    assert "error" in error_text or "only select" in error_text, (
+        f"Expected DML rejection on neon_query, got: {payload}"
+    )
