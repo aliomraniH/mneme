@@ -5,12 +5,12 @@ from pathlib import Path
 from psycopg_pool import AsyncConnectionPool
 
 
-async def create_pool(database_url: str) -> AsyncConnectionPool:  # type: ignore[type-arg]
+async def create_pool(database_url: str) -> AsyncConnectionPool:
     """Create and open the shared async connection pool.
 
     One pool per process. Callers must call pool.close() on shutdown.
     """
-    pool: AsyncConnectionPool = AsyncConnectionPool(  # type: ignore[type-arg]
+    pool: AsyncConnectionPool = AsyncConnectionPool(
         conninfo=database_url,
         min_size=1,
         max_size=10,
@@ -20,7 +20,7 @@ async def create_pool(database_url: str) -> AsyncConnectionPool:  # type: ignore
     return pool
 
 
-async def run_migrations(pool: AsyncConnectionPool, *migration_paths: Path) -> None:  # type: ignore[type-arg]
+async def run_migrations(pool: AsyncConnectionPool, *migration_paths: Path) -> None:
     """Run SQL migration files in order against the shared pool.
 
     Uses IF NOT EXISTS / IF EXISTS guards so re-runs are idempotent.
@@ -39,10 +39,13 @@ def migrations_dir() -> Path:
     return here.parent.parent / "migrations"
 
 
-async def apply_pending_migrations(pool: AsyncConnectionPool) -> None:  # type: ignore[type-arg]
-    """Apply only 0002_sessions.sql (0001 is already applied on Helium)."""
+async def apply_pending_migrations(pool: AsyncConnectionPool) -> None:
+    """Apply post-0001 migrations (0001 was applied by the Replit Agent on Helium)."""
     mdir = migrations_dir()
-    pending = [mdir / "0002_sessions.sql"]
+    pending = [
+        mdir / "0002_sessions.sql",
+        mdir / "0003_database_registry.sql",
+    ]
     existing = [p for p in pending if p.exists()]
     if existing:
         await run_migrations(pool, *existing)
