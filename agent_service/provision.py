@@ -31,7 +31,7 @@ from agent_service.provisioners.vercel import _REGIONS as _VERCEL_REGIONS
 log = structlog.get_logger(__name__)
 
 
-def register_provision_tools(mneme: FastMCP, settings: Settings) -> None:  # type: ignore[type-arg]
+def register_provision_tools(mneme: FastMCP, settings: Settings) -> None:
     """Register provisioning tools on the mneme FastMCP server.
 
     Called from the FastAPI lifespan after settings are fully loaded so the
@@ -103,7 +103,7 @@ def register_provision_tools(mneme: FastMCP, settings: Settings) -> None:  # typ
             "connection_url": result.connection_url,
             "next_steps": "\n".join([
                 f"1. Add to Replit Secrets: DATABASE_URL_{ns.upper()}=<connection_url above>",
-                f"2. Deploy a DB MCP server for this database (see docs/UPSTREAM.md)",
+                "2. Deploy a DB MCP server for this database (see docs/UPSTREAM.md)",
                 f"3. Add to UPSTREAM_DB_MCP_SERVERS: {{\"{ns}\": \"https://your-db-mcp.replit.app/mcp\"}}",
                 f"4. Add routing keywords to MNEME_NAMESPACE_ROUTING_KEYWORDS for namespace '{ns}'",
                 "5. Restart mneme (Replit → Run) to pick up the new upstream",
