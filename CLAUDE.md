@@ -17,10 +17,12 @@ The MVP is **pull-only**: observe traffic, build memory, advise. No write-backs 
 Read `docs/ARCHITECTURE.md` for the full reasoning. The decisions below are locked for the MVP and Phase 1.5; ask before deviating.
 
 - **Single process** on a Replit Reserved VM ($20/mo). One FastAPI app hosting one FastMCP server + a sidecar dashboard route.
-- **Single Postgres** (Vercel Postgres) for everything: app data, LangGraph checkpoints, LangGraph store, memory tables. No Redis, no Neo4j, no separate vector DB at MVP.
+- **Single Postgres** — Replit Helium (`postgresql://postgres:<password>@helium/heliumdb?sslmode=disable`). It holds LangGraph checkpoints, LangGraph store, mneme memory tables, AND the `saaz` demo dataset's `artist`/`song`/etc. tables. No Redis, no Neo4j, no separate vector DB at MVP. See `docs/DATABASE.md` for the shared-DB rules.
+- **mneme never writes to saaz tables.** mneme owns `db_schema_snapshot`, `column_doc`, `query_episode`, `expertise_note`, `cache_event`. saaz owns `artist`, `artist_link`, `artist_image`, `song`, `enrichment_run`, `data_provenance`. LangGraph owns `store` + `checkpoints*`. Discipline, not enforcement, in the MVP.
 - **MCP interception via FastMCP middleware**, not a separate proxy process. Use `FastMCP.as_proxy()` to mount the upstream DB MCP server and attach `Middleware` subclasses for `on_call_tool` and `on_message`.
 - **Memory schema is frozen** at `migrations/0001_init.sql`. Adding a column requires a new numbered migration; never edit `0001`.
 - **Pull-only.** No tool may mutate any downstream database in Phase 1 or Phase 2. Write-back is a Phase 3 conversation.
+- **Helium is internal-only.** The hostname `helium` only resolves from inside Replit. Don't add code paths that assume external access.
 
 ## Stack and pinned versions
 
@@ -106,7 +108,8 @@ A deliverable is done when:
 ## Things to ask before writing code
 
 If any of the following are unclear, surface them before scaffolding:
-- Which Postgres instance is the memory DB pointing at? (Same as app? Separate?)
-- What's the URL of the upstream FastMCP DB server in `$UPSTREAM_DB_MCP_URL`?
+- Is `$DATABASE_URL` set in Replit Secrets and reachable? (Should be Helium: `postgresql://postgres:<password>@helium/heliumdb?sslmode=disable`.)
+- Is the upstream FastMCP DB server actually deployed at `$UPSTREAM_DB_MCP_URL`? If not, mneme has nothing to proxy.
+- Has saaz been seeded into the same Helium Postgres? (Run the saaz health-check queries in `docs/DATABASE.md` § "Sanity-checking saaz".)
 - Which LLM should the Phase 2 agent use? (Default: `claude-sonnet-4-5` via the Anthropic API.)
 - Is LangSmith enabled? (Optional but recommended.)
