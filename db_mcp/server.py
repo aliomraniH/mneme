@@ -213,7 +213,23 @@ mcp.tool(
 async def _lifespan(fastapi_app: FastAPI) -> AsyncGenerator[None, None]:
     global _pool
     db_url = os.environ[_URL_ENV_KEY]
-    _pool = AsyncConnectionPool(db_url, min_size=1, max_size=4, open=False)
+    # max_idle=240 recycles connections every 4 min — before Neon's serverless
+    # idle-connection killer fires at ~5 min.  TCP keepalive params prevent the
+    # SSL link from being silently torn down while a connection is in the pool.
+    _pool = AsyncConnectionPool(
+        db_url,
+        min_size=1,
+        max_size=4,
+        max_idle=240,
+        reconnect_timeout=5,
+        kwargs={
+            "keepalives": 1,
+            "keepalives_idle": 60,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        },
+        open=False,
+    )
     await _pool.open()
     log.info("db_mcp_pool_ready", name=_NAME, prefix=_PREFIX)
     async with _mcp_http_app.router.lifespan_context(fastapi_app):
