@@ -21,6 +21,8 @@
 | Unit tests (Helium + TRUNCATE isolation) | ✅ done | 39 tests: routing, memory, audit, proxy, provisioners |
 | Integration tests | ✅ passing | All 3 tests in `tests/integration/test_smoke.py` green |
 | Vercel provisioner | ✅ done | `provision_database` + `list_database_regions`; get-or-error semantics (dashboard-first) |
+| DB registry (registered_database table + 5 CRUD tools) | ✅ done | migration 0003, `agent_service/db_registry.py`, 5 tests |
+| Generic db_mcp server (env-driven tool prefix) | ✅ done | `db_mcp/server.py`; neon_mcp is now a 5-line shim |
 
 **Phase 1 exit criterion: ✅ done**
 
