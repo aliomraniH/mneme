@@ -18,9 +18,9 @@
 | Result summary cap | ✅ done | 4 096-byte cap with `truncated` flag |
 | No-op auth middleware | ✅ done | `RequireAuthMiddleware` pass-through, Phase 2 ready |
 | docs/UPSTREAM.md | ✅ done | Moved from `attached_assets/` |
-| Unit tests (Helium + TRUNCATE isolation) | ✅ done | 37 tests: routing, memory, audit, proxy, provisioners |
+| Unit tests (Helium + TRUNCATE isolation) | ✅ done | 39 tests: routing, memory, audit, proxy, provisioners |
 | Integration tests | ✅ passing | All 3 tests in `tests/integration/test_smoke.py` green |
-| Vercel provisioner | ✅ done | `provision_database` + `list_database_regions` native tools |
+| Vercel provisioner | ✅ done | `provision_database` + `list_database_regions`; get-or-error semantics (dashboard-first) |
 
 **Phase 1 exit criterion: ✅ done**
 
@@ -65,6 +65,44 @@ All rows land in `db_namespace = 'saaz_demo'` — namespace routing is working c
  'saaz_list_tables', 'saaz_describe_table', 'saaz_query',
  'saaz_get_artist', 'saaz_list_artists', 'saaz_search_artists', 'saaz_stats']
 ```
+
+---
+
+### Step 5 — provision_database live evidence (2026-05-22)
+
+`provision_database(name="neon-purple-kite", provider="vercel", region="iad1")` response:
+
+```json
+{
+  "status":               "created",
+  "provider":             "vercel",
+  "database_name":        "neon-purple-kite",
+  "suggested_namespace":  "neon_purple_kite",
+  "host":                 "ep-broad-dawn-aq9rs7up-pooler.c-8.us-east-1.aws.neon.tech",
+  "port":                 "5432",
+  "database":             "neondb",
+  "username":             "neondb_owner",
+  "region":               "iad1",
+  "provider_id":          "store_25ZLaez6thQ6CeNp",
+  "connection_url":       "postgresql://neondb_owner:***@...neon.tech/neondb?sslmode=require",
+  "next_steps":           "1. Add to Replit Secrets: DATABASE_URL_NEON_PURPLE_KITE=<connection_url>\n..."
+}
+```
+
+**Note on Vercel API**: Vercel retired `POST /v1/storage/postgres` (legacy Vercel Postgres
+product) in 2024. Postgres databases are now Neon integration stores created through the
+Vercel dashboard (Storage → Create Database → Neon). The provisioner was updated to use
+**get-or-error semantics**: it lists existing stores via `GET /v1/storage/stores`, matches
+by name (with hyphen/underscore normalisation), and reads secrets via
+`GET /v1/storage/stores/{id}/secrets`.  If the named store does not exist it raises a
+`ProvisionError` with dashboard-creation instructions.
+
+**Pending for full step 6 wiring** (requires user action):
+- Add `DATABASE_URL_NEON_PURPLE_KITE=<connection_url>` to Replit Secrets
+- Deploy a DB MCP server for `neon-purple-kite` (second Replit project, saaz-style)
+- Set `UPSTREAM_DB_MCP_SERVERS` to include `"neon_purple_kite": "https://…/mcp"`
+- Add routing keywords for `neon_purple_kite` in `MNEME_NAMESPACE_ROUTING_KEYWORDS`
+- Restart mneme
 
 ---
 
