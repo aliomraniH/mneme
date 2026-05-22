@@ -36,7 +36,7 @@ class AuditMiddleware(Middleware):
 
     def __init__(
         self,
-        pool_factory: Callable[[], AsyncConnectionPool],  # type: ignore[type-arg]
+        pool_factory: Callable[[], AsyncConnectionPool],
         namespace_keywords_factory: (
             Callable[[], dict[str, list[str]] | None] | None
         ) = None,
