@@ -39,6 +39,7 @@ from agent_service.middleware.session import (
     mark_sessions_shutdown,
 )
 from agent_service.middleware.timeout import TimeoutMiddleware
+from agent_service.provision import register_provision_tools
 from agent_service.proxy import build_mneme_server, mount_upstream
 
 # ---------------------------------------------------------------------------
@@ -129,6 +130,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Mount one proxy per configured upstream database MCP server
     mount_upstream(mneme, settings)
+
+    # Register native agent-owned tools (provision_database, list_database_regions)
+    register_provision_tools(mneme, settings)
 
     # Start idle session reaper background task
     shutdown_event = asyncio.Event()

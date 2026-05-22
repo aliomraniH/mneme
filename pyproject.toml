@@ -30,6 +30,8 @@ dependencies = [
     "structlog>=24",
     # Rate limiting
     "slowapi>=0.1.9",
+    # HTTP client for cloud-provider REST APIs (Vercel provisioner)
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]

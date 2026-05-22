@@ -23,3 +23,7 @@ class PoolNotReadyError(MnemeError):
 
 class SessionError(MnemeError):
     """Session management operation failed."""
+
+
+class ProvisionError(MnemeError):
+    """Database provisioning at a cloud provider failed."""

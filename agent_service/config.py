@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # Leave empty to use routing.py's built-in defaults.
     namespace_routing_keywords: dict[str, list[str]] = Field(default_factory=dict)
 
+    # Vercel integration — database provisioning via provision_database tool
+    # Get a token at https://vercel.com/account/tokens (Storage write scope).
+    vercel_api_token: SecretStr | None = None
+    vercel_team_id: str | None = None  # required for team-scoped Vercel accounts
+
     # Optional — needed for Phase 2+
     anthropic_api_key: SecretStr | None = None
     langsmith_api_key: SecretStr | None = None
