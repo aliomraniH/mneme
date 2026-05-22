@@ -19,6 +19,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start neon-mcp"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -31,6 +35,22 @@ waitForPort = 5000
 [workflows.workflow.metadata]
 outputType = "webview"
 
+[[workflows.workflow]]
+name = "Start neon-mcp"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "uvicorn neon_mcp.server:app --host 0.0.0.0 --port 3000"
+waitForPort = 3000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[ports]]
+localPort = 3000
+externalPort = 3002
+
 [[ports]]
 localPort = 5000
 externalPort = 80
@@ -42,4 +62,5 @@ run = ["uvicorn", "agent_service.server:app", "--host", "0.0.0.0", "--port", "50
 [userenv]
 
 [userenv.shared]
-UPSTREAM_DB_MCP_URL = "https://saaz-aloomrani.replit.app/mcp"
+UPSTREAM_DB_MCP_SERVERS = "{\"saaz_demo\":\"https://saaz-aloomrani.replit.app/mcp\",\"neon_purple_kite\":\"http://localhost:3000/mcp/\"}"
+NAMESPACE_ROUTING_KEYWORDS = "{\"saaz_demo\":[\"artist\",\"song\",\"saaz\",\"genre\",\"persian\",\"jazz\",\"album\",\"saaz_\"],\"neon_purple_kite\":[\"neon_\",\"patient\",\"mrn\",\"medical\",\"clinical\",\"insurance\",\"neon_purple_kite\"],\"pg_main\":[\"postgres\",\"pg_main\"],\"pinecone_main\":[\"pinecone\",\"embedding\",\"vector\"]}"
