@@ -138,6 +138,51 @@ neon_purple_kite  neon_list_tables
 
 ---
 
+---
+
+### Capability probe & test battery (2026-05-22)
+
+**Live MCP probe results** — all tools called via the connected MCP session:
+
+| Tool | Result | Notes |
+|---|---|---|
+| `saaz_stats` | ✅ | 30 artists, 4 genres, enrichment cost returned |
+| `saaz_list_tables` | ✅ | 6 tables with row counts |
+| `saaz_list_artists` (no filter) | ✅ | 30 artists |
+| `saaz_list_artists` (genre=indie_persian_jazz) | ✅ | 13 artists |
+| `saaz_list_artists` (status=deceased) | ✅ | 1 artist (Shajarian) |
+| `saaz_get_artist` (valid slug) | ✅ | Full record: bio, links, images, provenance |
+| `saaz_get_artist` (invalid slug) | ✅ | Returns `{"error": "..."}`, no crash |
+| `saaz_query` SELECT + JOIN | ✅ | Multi-table JOIN executes correctly |
+| `saaz_query` INSERT | ✅ BLOCKED | "Only SELECT...statements are allowed" |
+| `saaz_query` DROP TABLE | ✅ BLOCKED | Same rejection |
+| `saaz_query` UPDATE | ✅ BLOCKED | Same rejection |
+| `saaz_search_artists` (semantic) | ✅ | pgvector ranked results, 100% embedding coverage |
+| `list_registered_databases` | ✅ | Returns registry with audit trail |
+| `get_database_info` | ✅ | Returns entry + call stats |
+| `neon_list_tables` | ❌ SSL error | local `neon_mcp/server.py` not running on port 3000 |
+| `neon_stats` | ❌ empty `{}` | Same root cause |
+
+**Data integrity checks** (via live `saaz_query` probes):
+- Embedding coverage: **100%** across all 4 genres (30/30 artists)
+- Bio presence: **29+/30** artists have bios > 50 chars
+- Provenance: `data_provenance` has rows for all 30 artists via `fact_id` join
+- `anthropic_web` source confidence: **≥ 0.9** on all enriched artists
+
+**Schema correction discovered**: `data_provenance` uses `fact_id` (not `artist_id`) with a polymorphic `fact_table` column. Updated join pattern: `dp.fact_id = a.id WHERE dp.fact_table = 'artist'`.
+
+**Test counts** (2026-05-22):
+
+| Suite | Pass | Skip | Notes |
+|---|---|---|---|
+| `make test` (unit, no DB) | **56** | 18 | 18 skipped = need DATABASE_URL |
+| `tests/test_prompt_battery.py` | **19** | 0 | New: realistic Claude usage scenarios |
+| `tests/integration/test_mcp_capabilities.py` | pending | — | Requires `MNEME_INTEGRATION=1` + live server |
+
+**Known issue**: `neon_mcp/server.py` local process not started at boot time. Start it or add it to Replit's `.replit` run command to fix `neon_*` tools.
+
+---
+
 ## Phase 2 — Advise (not started)
 ## Phase 2.5 — Per-DB experts (not started)
 ## Phase 3 — Surface (not started)
