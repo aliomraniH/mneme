@@ -21,7 +21,9 @@ import os
 import uuid as _uuid_mod
 from collections.abc import AsyncGenerator
 from contextlib import suppress
+from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 from psycopg_pool import AsyncConnectionPool
@@ -31,7 +33,7 @@ from agent_service.memory.episodes import get_recent_episodes
 from agent_service.memory.store import apply_pending_migrations, create_pool
 
 
-def _parse_sse_json(resp: "httpx.Response") -> dict:  # type: ignore[type-arg]
+def _parse_sse_json(resp: httpx.Response) -> dict[str, Any]:
     """Extract the JSON object from an SSE text/event-stream response.
 
     FastMCP's streamable-HTTP transport wraps every JSON-RPC response in an
