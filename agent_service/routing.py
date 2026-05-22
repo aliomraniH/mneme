@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any
 
-# Built-in defaults — used when no namespace_routing_keywords config is provided.
-# Priority is determined by dict insertion order (first match wins).
-# Override via MNEME_NAMESPACE_ROUTING_KEYWORDS env var (JSON mapping).
+# Built-in fallback keywords — only generic infrastructure patterns.
+# These are intentionally minimal: no project- or dataset-specific names here.
 #
-# "embedding_index" is used instead of bare "vector" — pgvector uses that term too.
+# Real keywords come from two sources (higher priority first):
+#   1. NAMESPACE_ROUTING_KEYWORDS env var (JSON mapping set in Replit Secrets)
+#   2. registered_database.routing_keywords loaded from Helium at startup
+#   3. These defaults (last resort)
+#
+# "embedding_index" avoids bare "vector" — pgvector uses that term too.
 _DEFAULT_NAMESPACE_KEYWORDS: dict[str, list[str]] = {
-    "saaz_demo": ["artist", "song", "persian", "jazz", "saaz", "genre"],
     "pinecone_main": ["pinecone", "embedding_index"],
     "pg_main": ["postgres", "pg_", "sql"],
 }
