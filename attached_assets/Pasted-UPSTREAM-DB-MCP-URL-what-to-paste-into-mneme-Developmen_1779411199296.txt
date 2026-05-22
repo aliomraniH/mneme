@@ -1,0 +1,42 @@
+UPSTREAM_DB_MCP_URL — what to paste into mneme
+
+Development (right now, while this Repl is open in the workspace):
+
+UPSTREAM_DB_MCP_URL=https://da7891db-5379-4802-bdac-2a2c1d5e6fe8-00-cobeful7wxin.janeway.replit.dev/mcp
+
+Production (after you click Publish on this Repl):
+
+UPSTREAM_DB_MCP_URL=https://<your-app-slug>.replit.app/mcp
+
+The exact .replit.app hostname is shown on the Deploy tab after the first publish. The path is always /mcp.
+What's running
+
+    Workflow: MCP Server — uv run python -m scripts.mcp_server on 0.0.0.0:5000. Verified live via a full MCP handshake (initialize → notifications/initialized → tools/list → tools/call stats). All 7 tools register and the stats call returns the real dataset (30 artists, 30 embeddings, $1.87 enrichment spend).
+    Deployment: switched from Scheduled to Autoscale, run command uv run python -m scripts.mcp_server.
+    Weekly refresh: runs inside the same process via APScheduler on REFRESH_CRON=0 6 * * 1 (Mondays 06:00 UTC). Logged at startup: scheduler started; refresh cron='0 6 * * 1'.
+
+Tools mneme can call against this MCP server
+Tool	Purpose
+list_tables	enumerate saaz tables
+describe_table	column info
+query	ad-hoc read-only SELECT (multi-statement, write, and DDL all blocked; 10s timeout; row cap 1000)
+get_artist	one artist with links / images / provenance
+list_artists	filter by genre / status
+search_artists	semantic search via pgvector + OpenAI embeddings
+stats	dataset health
+Safety guarantees baked in
+
+    The MCP server only ever touches the 6 saaz tables (SAAZ_TABLES whitelist for describe_table).
+    Every query call is wrapped in SET LOCAL default_transaction_read_only = on + statement_timeout = 10s and pre-validated to reject anything that isn't a single SELECT/WITH-SELECT.
+    mneme's tables (query_episode, expertise_note, etc.) are not reachable through this server at all.
+
+Test it from mneme (or anywhere)
+
+# Initialize a session
+curl -i -X POST https://da7891db-5379-4802-bdac-2a2c1d5e6fe8-00-cobeful7wxin.janeway.replit.dev/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
+# → grab the `mcp-session-id` response header, then send tools/list and tools/call with it
+
+You're all set. Once you publish, swap in the .replit.app URL on mneme's side and the proxy chain will be complete.
