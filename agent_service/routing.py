@@ -4,9 +4,7 @@ import json
 from typing import Any
 
 # Keywords that identify the saaz Persian-songwriter demo dataset.
-_SAAZ_KEYWORDS: frozenset[str] = frozenset(
-    {"artist", "song", "persian", "jazz", "saaz", "genre"}
-)
+_SAAZ_KEYWORDS: frozenset[str] = frozenset({"artist", "song", "persian", "jazz", "saaz", "genre"})
 
 # Keywords that route to a dedicated Pinecone namespace.
 # Deliberately excludes "vector" alone — pgvector uses that word too.

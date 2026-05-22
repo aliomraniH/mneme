@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from typing import Any
 
 import mcp.types as mt
 import structlog
@@ -39,7 +37,7 @@ class TimeoutMiddleware(Middleware):
                 call_next(context),
                 timeout=self._timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError as err:
             log.warning(
                 "tool_call_timeout",
                 tool_name=tool_name,
@@ -50,4 +48,4 @@ class TimeoutMiddleware(Middleware):
                     code=-32000,
                     message=f"Tool '{tool_name}' timed out after {self._timeout:.0f}s",
                 )
-            )
+            ) from err

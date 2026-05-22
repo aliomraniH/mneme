@@ -6,19 +6,22 @@ fields, and that audit_id appears in the response metadata.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server import create_proxy
 from psycopg_pool import AsyncConnectionPool
 
-# All tests in this module write to mneme tables — truncate after each one.
-pytestmark = pytest.mark.usefixtures("truncate_mneme_tables")
-
 from agent_service.memory.episodes import get_recent_episodes
 from agent_service.middleware.audit import AuditMiddleware
 
+pytestmark = pytest.mark.usefixtures("truncate_mneme_tables")
 
-def _make_instrumented_server(pool_factory) -> FastMCP:  # type: ignore[type-arg]
+
+def _make_instrumented_server(
+    pool_factory: Callable[[], AsyncConnectionPool],  # type: ignore[type-arg]
+) -> FastMCP:  # type: ignore[type-arg]
     upstream: FastMCP = FastMCP("fake-upstream")  # type: ignore[type-arg]
 
     @upstream.tool
@@ -74,7 +77,7 @@ async def test_audit_row_written_on_error(
 ) -> None:
     server = _make_instrumented_server(lambda: unit_pool)
 
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         await server.call_tool("fail_always", {})
 
     episodes = await get_recent_episodes(unit_pool, "default")

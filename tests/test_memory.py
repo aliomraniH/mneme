@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from uuid import uuid4
-
 import pytest
-import pytest_asyncio
 from psycopg_pool import AsyncConnectionPool
-
-# All tests in this module write to mneme tables — truncate after each one.
-pytestmark = pytest.mark.usefixtures("truncate_mneme_tables")
 
 from agent_service.memory.episodes import get_recent_episodes, write_episode
 from agent_service.memory.notes import write_expertise_note
 from agent_service.models import Episode
+
+pytestmark = pytest.mark.usefixtures("truncate_mneme_tables")
 
 
 @pytest.mark.asyncio

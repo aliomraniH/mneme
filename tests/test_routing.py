@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agent_service.routing import route_to_namespace
@@ -33,9 +35,7 @@ from agent_service.routing import route_to_namespace
         ("query", {"sql": "SELECT genre FROM tracks"}, "saaz_demo"),
     ],
 )
-def test_route_to_namespace(
-    tool_name: str, params: dict, expected: str
-) -> None:
+def test_route_to_namespace(tool_name: str, params: dict[str, Any], expected: str) -> None:
     assert route_to_namespace(tool_name, params) == expected
 
 

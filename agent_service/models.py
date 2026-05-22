@@ -43,9 +43,7 @@ class Episode(BaseModel):
 class Advisory(BaseModel):
     """Placeholder for Phase 2. Defined now so middleware signatures are stable."""
 
-    kind: Literal[
-        "cache_stale", "potential_conflict", "schema_drift", "middleware_error"
-    ]
+    kind: Literal["cache_stale", "potential_conflict", "schema_drift", "middleware_error"]
     db_namespace: str
     message: str
     confidence: float
@@ -77,9 +75,7 @@ class Event:
     ts: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-def truncate_result_summary(
-    result: Any, max_bytes: int = 4096
-) -> tuple[dict[str, Any], bool]:
+def truncate_result_summary(result: Any, max_bytes: int = 4096) -> tuple[dict[str, Any], bool]:
     """Serialize result to a JSON-safe summary, capping at max_bytes.
 
     Returns (summary_dict, was_truncated).

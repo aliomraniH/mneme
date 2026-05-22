@@ -130,7 +130,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 reaper_task,
                 timeout=settings.graceful_shutdown_timeout_seconds,
             )
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except (TimeoutError, asyncio.CancelledError):
             reaper_task.cancel()
 
         # Mark all open sessions as shutdown

@@ -13,24 +13,27 @@ Verifies:
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncGenerator
+from contextlib import suppress
 
 import pytest
 import pytest_asyncio
 from psycopg_pool import AsyncConnectionPool
 
-from agent_service.config import get_settings
+from agent_service.config import Settings, get_settings
 from agent_service.memory.episodes import get_recent_episodes
 from agent_service.memory.store import apply_pending_migrations, create_pool
 
 
 @pytest.fixture(scope="module")
-def integration_settings():
+def integration_settings() -> Settings:
     return get_settings()
 
 
 @pytest_asyncio.fixture(scope="module")
-async def helium_pool(integration_settings) -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ignore[type-arg]
-    from typing import AsyncGenerator
+async def helium_pool(
+    integration_settings: Settings,
+) -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ignore[type-arg]
     pool = await create_pool(integration_settings.database_url_str())
     await apply_pending_migrations(pool)
     yield pool
@@ -47,9 +50,7 @@ async def test_mneme_proxies_saaz_tools(helium_pool: AsyncConnectionPool) -> Non
     """
     import httpx
 
-    mneme_url = os.environ.get(
-        "MNEME_URL", "https://mneme-aloomrani.replit.app/mcp"
-    )
+    mneme_url = os.environ.get("MNEME_URL", "https://mneme-aloomrani.replit.app/mcp")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Initialize session
@@ -93,7 +94,10 @@ async def test_mneme_proxies_saaz_tools(helium_pool: AsyncConnectionPool) -> Non
             ("stats", {}),
             ("list_tables", {}),
             ("list_artists", {"limit": 5}),
-            ("query", {"sql": "SELECT genre, count(*) AS n FROM artist GROUP BY genre ORDER BY n DESC"}),
+            (
+                "query",
+                {"sql": "SELECT genre, count(*) AS n FROM artist GROUP BY genre ORDER BY n DESC"},
+            ),
             ("query", {"sql": "DROP TABLE artist"}),  # should be rejected (write blocked)
         ]
         results = []
@@ -117,9 +121,7 @@ async def test_mneme_proxies_saaz_tools(helium_pool: AsyncConnectionPool) -> Non
 
     # Verify audit rows in Helium
     saaz_episodes = await get_recent_episodes(helium_pool, "saaz_demo", limit=50)
-    assert len(saaz_episodes) >= 4, (
-        f"Expected >=4 saaz_demo episodes, got {len(saaz_episodes)}"
-    )
+    assert len(saaz_episodes) >= 4, f"Expected >=4 saaz_demo episodes, got {len(saaz_episodes)}"
 
     # Verify session row
     async with helium_pool.connection() as conn:
@@ -170,10 +172,8 @@ async def test_idle_session_reaper(helium_pool: AsyncConnectionPool) -> None:  #
     # Let it run one iteration then cancel
     await asyncio.sleep(0.5)
     reaper_task.cancel()
-    try:
+    with suppress(asyncio.CancelledError):
         await reaper_task
-    except asyncio.CancelledError:
-        pass
 
     async with helium_pool.connection() as conn:
         cur = await conn.execute(

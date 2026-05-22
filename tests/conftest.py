@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncGenerator
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -38,7 +37,6 @@ async def unit_pool() -> AsyncGenerator[AsyncConnectionPool, None]:  # type: ign
 
     # Apply both migrations (idempotent; 0001 was already applied by Replit Agent,
     # but we run it anyway to ensure the test DB is in sync)
-    mdir = Path(__file__).parent.parent / "migrations"
     await apply_pending_migrations(pool)
 
     yield pool
@@ -82,14 +80,10 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if os.environ.get("MNEME_INTEGRATION") == "1":
         return
-    skip_integration = pytest.mark.skip(
-        reason="set MNEME_INTEGRATION=1 to run integration tests"
-    )
+    skip_integration = pytest.mark.skip(reason="set MNEME_INTEGRATION=1 to run integration tests")
     for item in items:
         if item.get_closest_marker("integration"):
             item.add_marker(skip_integration)

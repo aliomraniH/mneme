@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any
-
-from starlette.requests import Request
-from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
@@ -18,8 +13,6 @@ class RequireAuthMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    async def __call__(
-        self, scope: Scope, receive: Receive, send: Send
-    ) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Phase 1: unconditional pass-through.
         await self.app(scope, receive, send)

@@ -40,9 +40,7 @@ def _sanitize_summary(summary: dict[str, Any] | None) -> dict[str, Any] | None:
         return {"truncated_payload": sanitized}
     # Sanitize string values one level deep; nested payloads are not recursed
     # (they come from mneme's own digest, not raw user data).
-    return {
-        k: _sanitize(v) if isinstance(v, str) else v for k, v in summary.items()
-    }
+    return {k: _sanitize(v) if isinstance(v, str) else v for k, v in summary.items()}
 
 
 async def write_episode(
