@@ -67,9 +67,6 @@ class Settings(BaseSettings):
     mcp_server_port: int = 5000
     log_level: str = "INFO"
 
-    # Routing — registered namespace names
-    mneme_namespaces: list[str] = ["pg_main", "pinecone_main", "saaz_demo", "default"]
-
     # Memory
     embedding_model: str = "text-embedding-3-small"
 
@@ -94,7 +91,6 @@ class Settings(BaseSettings):
             "mcp_server_host": self.mcp_server_host,
             "mcp_server_port": self.mcp_server_port,
             "log_level": self.log_level,
-            "mneme_namespaces": self.mneme_namespaces,
             "session_idle_timeout_seconds": self.session_idle_timeout_seconds,
             "per_call_timeout_seconds": self.per_call_timeout_seconds,
             "rate_limit_per_minute": self.rate_limit_per_minute,
@@ -104,4 +100,4 @@ class Settings(BaseSettings):
 
 @functools.cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    return Settings()
