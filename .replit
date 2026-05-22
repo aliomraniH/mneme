@@ -42,4 +42,4 @@ run = ["uvicorn", "agent_service.server:app", "--host", "0.0.0.0", "--port", "50
 [userenv]
 
 [userenv.shared]
-UPSTREAM_DB_MCP_URL = "https://da7891db-5379-4802-bdac-2a2c1d5e6fe8-00-cobeful7wxin.janeway.replit.dev/mcp"
+UPSTREAM_DB_MCP_URL = "https://saaz-aloomrani.replit.app/mcp"
