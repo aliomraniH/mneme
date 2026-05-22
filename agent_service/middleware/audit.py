@@ -74,8 +74,13 @@ class AuditMiddleware(Middleware):
                 from fastmcp.server.dependencies import get_http_request
 
                 req = get_http_request()
-                client_ip = req.headers.get("x-forwarded-for") or (
-                    req.client.host if req.client else None
+                # X-Forwarded-For may be a comma-separated chain of IPs when
+                # requests pass through multiple Replit proxy layers.
+                # ::inet only accepts a single address — take the leftmost one.
+                _xff = req.headers.get("x-forwarded-for")
+                client_ip = (
+                    _xff.split(",")[0].strip() if _xff
+                    else (req.client.host if req.client else None)
                 )
                 user_agent_str = req.headers.get("user-agent")
                 # Use the HTTP transport session ID (same key as SessionMiddleware uses).
