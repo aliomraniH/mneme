@@ -45,7 +45,7 @@ def _sanitize_summary(summary: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 async def write_episode(
-    pool: AsyncConnectionPool,  # type: ignore[type-arg]
+    pool: AsyncConnectionPool,
     episode: Episode,
 ) -> UUID:
     """Insert one query_episode row. Never raises — callers rely on fire-and-forget."""
@@ -103,7 +103,7 @@ async def write_episode(
 
 
 async def get_recent_episodes(
-    pool: AsyncConnectionPool,  # type: ignore[type-arg]
+    pool: AsyncConnectionPool,
     db_namespace: str,
     limit: int = 20,
     tool_name: str | None = None,
