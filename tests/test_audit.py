@@ -122,6 +122,33 @@ async def test_audit_namespace_routing(
 
 
 @pytest.mark.asyncio
+async def test_row_count_from_structured_content_dict(
+    unit_pool: AsyncConnectionPool,  # type: ignore[type-arg]
+) -> None:
+    """row_count must be extracted from structured_content dict, not list length."""
+    from fastmcp.tools.base import ToolResult
+
+    upstream: FastMCP = FastMCP("fake")  # type: ignore[type-arg]
+
+    @upstream.tool
+    def query_rows() -> dict:  # type: ignore[type-arg]
+        return {"row_count": 47, "truncated": False, "rows": list(range(47))}
+
+    proxy = create_proxy(upstream, name="proxy")
+    parent: FastMCP = FastMCP("parent")  # type: ignore[type-arg]
+    parent.mount(proxy, namespace=None)
+    parent.add_middleware(AuditMiddleware(pool_factory=lambda: unit_pool))
+
+    result = await parent.call_tool("query_rows", {})
+    assert result is not None
+
+    episodes = await get_recent_episodes(unit_pool, "default")
+    assert len(episodes) == 1
+    ep = episodes[0]
+    assert ep.row_count == 47, f"expected 47, got {ep.row_count}"
+
+
+@pytest.mark.asyncio
 async def test_result_summary_capped_at_4096(
     unit_pool: AsyncConnectionPool,  # type: ignore[type-arg]
 ) -> None:
