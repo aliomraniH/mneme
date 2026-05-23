@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # Audit
     result_summary_max_bytes: int = 4096
 
+    # Trusted proxy hops for client_ip resolution.
+    # 0 (default): use req.client.host — the actual peer, cannot be forged.
+    # N > 0: read XFF[-(N+1)] — the IP N hops back from the rightmost entry.
+    # Set to 1 if mneme sits behind exactly one trusted reverse proxy.
+    trusted_proxy_hops: int = 0
+
     def database_url_str(self) -> str:
         return self.database_url.get_secret_value()
 
