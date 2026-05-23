@@ -82,10 +82,24 @@ class Settings(BaseSettings):
     # Audit
     result_summary_max_bytes: int = 4096
 
-    # Trusted proxy hops for client_ip resolution.
-    # 0 (default): use req.client.host — the actual peer, cannot be forged.
-    # N > 0: read XFF[-(N+1)] — the IP N hops back from the rightmost entry.
-    # Set to 1 if mneme sits behind exactly one trusted reverse proxy.
+    # Trusted proxy hops for client_ip resolution.  (Task 10)
+    #
+    # Background:
+    #   X-Forwarded-For can be trivially forged by any caller.  Reading
+    #   XFF[0] directly (the old behaviour) allowed a client to lie about its
+    #   IP address.  The safe default is to trust only the TCP peer address
+    #   (req.client.host), which is set by the kernel and cannot be spoofed.
+    #
+    # How to set this:
+    #   0 (default) — use req.client.host; safe for direct connections or
+    #                 setups where you do not control any reverse proxy.
+    #   1           — mneme sits behind exactly one trusted reverse proxy
+    #                 (e.g. Replit's internal router, nginx, or a load balancer).
+    #                 Use XFF[-(1+1)] = XFF[-2].
+    #   N           — mneme sits behind exactly N trusted proxies.
+    #                 Use XFF[-(N+1)].
+    #
+    # Set via env var: TRUSTED_PROXY_HOPS=1
     trusted_proxy_hops: int = 0
 
     def database_url_str(self) -> str:
