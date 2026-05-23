@@ -16,22 +16,54 @@ log = structlog.get_logger(__name__)
 
 _IDLE_TIMEOUT_MINUTES = 30
 
-# Keyed by fastmcp_ctx.session_id (a stable per-session UUID).
-# Stores client metadata captured during on_initialize so that on_call_tool
-# can INSERT the session row with the correct HTTP transport session ID.
+# ---------------------------------------------------------------------------
+# _pending_metadata  (first-call bootstrap, Task 3 / Task 5)
+# ---------------------------------------------------------------------------
+# Keyed by fastmcp_ctx.session_id (a stable per-session UUID assigned by
+# FastMCP before the HTTP transport session ID is known).
+#
+# Problem: the MCP initialize request creates the HTTP transport session and
+# its ID is returned in the *response* header — we cannot read it inside the
+# on_initialize handler because the header is added after the handler returns.
+# Solution: cache the client metadata here; on_call_tool pops the entry on
+# the very first tool call, when the "mcp-session-id" request header is
+# already present.
+#
 # Entries are popped on first tool call to avoid unbounded growth.
 _pending_metadata: dict[str, dict[str, Any]] = {}
 
-# Persistent per-session client-info cache, keyed by the canonical session_id
-# (the http_sid form, i.e. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
-# Populated after the first successful INSERT; retained for the lifetime of
-# the session so AuditMiddleware can read client_name/version on every call.
-# Entries are evicted by idle_session_reaper and mark_sessions_shutdown.
+# ---------------------------------------------------------------------------
+# _session_client_info  (persistent per-session cache, Tasks 5 & 6)
+# ---------------------------------------------------------------------------
+# Keyed by the canonical session_id (UUID string with dashes, same form used
+# in the mcp_session table primary key).
+#
+# Why this exists (Task 5):
+#   AuditMiddleware runs on EVERY tool call and needs client_name/version to
+#   populate the query_episode row.  Before this cache, those fields were only
+#   available during on_initialize (the one request that carries clientInfo in
+#   the MCP protocol).  Subsequent calls had no access to that data.
+#
+# How it is populated:
+#   After a successful INSERT into mcp_session (Phase 1 of on_call_tool, or
+#   the upsert in the reconnect path of on_initialize), the entry is written
+#   here.  AuditMiddleware reads it via get_session_client_info().
+#
+# Memory bound (Task 6):
+#   idle_session_reaper evicts entries for sessions it marks ended in the DB.
+#   It also runs a TTL sweep: any entry older than idle_seconds is evicted
+#   even if the DB reap found nothing (guards against sessions that never
+#   made a tool call).
+#   mark_sessions_shutdown() clears the dict entirely on process shutdown.
 _session_client_info: dict[str, dict[str, Any]] = {}
 
 
 def get_session_client_info(session_id: str) -> dict[str, Any] | None:
-    """Return cached clientInfo dict for session_id, or None if not found."""
+    """Return cached clientInfo dict for session_id, or None if not found.
+
+    Used by AuditMiddleware to populate client_name / client_version on every
+    tool call without re-reading from the DB.
+    """
     return _session_client_info.get(session_id)
 
 
@@ -41,19 +73,33 @@ def _resolve_client_ip(
     peer_host: str | None,
     trusted_proxy_hops: int = 0,
 ) -> str | None:
-    """Resolve the effective client IP from request headers.
+    """Resolve the effective client IP from request metadata.  (Task 10)
 
-    trusted_proxy_hops=0 (default): use peer_host — the actual TCP peer,
-    cannot be forged by the external caller.
+    Security motivation:
+        The X-Forwarded-For header is trivially forged by any caller.  Reading
+        XFF[0] directly (the old behaviour) allowed a client to claim any IP
+        it liked.  The safe default is to trust only the TCP peer address
+        (req.client.host), which is set by the kernel and cannot be spoofed.
 
-    trusted_proxy_hops=N (N > 0): use XFF[-(N+1)], i.e. the entry N positions
-    from the rightmost in the X-Forwarded-For chain.  Falls back to peer_host
-    when XFF is absent or does not contain enough entries.
+    trusted_proxy_hops=0 (default):
+        Return peer_host — the actual TCP peer, always trustworthy.
+
+    trusted_proxy_hops=N (N > 0):
+        Each trusted reverse proxy appends the previous hop's IP to XFF.  The
+        rightmost N entries were added by our own trusted proxies; the entry
+        at position -(N+1) from the right is the outermost untrusted IP, which
+        is the real client.  Falls back to peer_host when XFF is absent or
+        does not contain enough entries to satisfy the hop count.
+
+    Example (trusted_proxy_hops=2, XFF="1.2.3.4, 10.0.0.1, 10.0.0.2"):
+        parts = ["1.2.3.4", "10.0.0.1", "10.0.0.2"]
+        We need len(parts) > 2, it is (len=3), so return parts[-(2+1)] = "1.2.3.4"
     """
     if trusted_proxy_hops == 0 or xff is None:
         return peer_host
     parts = [p.strip() for p in xff.split(",")]
-    # We need at least N+1 entries to safely trust entry [-(N+1)]
+    # We need at least N+1 entries to safely trust entry [-(N+1)].
+    # If the chain is shorter, fall back to the peer (conservative).
     if len(parts) <= trusted_proxy_hops:
         return peer_host
     return parts[-(trusted_proxy_hops + 1)]
@@ -77,18 +123,39 @@ def _normalize_sid(raw: str) -> str:
 class SessionMiddleware(Middleware):
     """Tracks MCP sessions in the mcp_session table.
 
-    On initialize: captures client metadata in-memory (the HTTP transport session
-    ID is not yet available in the request headers at this point, because this is
-    the very first request for a new session).
+    Lifecycle:
 
-    On first tool call: inserts the session row using the ``mcp-session-id``
-    HTTP request header as the primary key and populates it with the metadata
-    collected during initialize.
+    on_initialize (new session):
+        The HTTP transport session ID is not yet visible here (it is added to
+        the response header after this handler returns).  We save the client
+        metadata to _pending_metadata keyed by fastmcp_ctx.session_id and
+        return.  No DB write yet.
 
-    On every subsequent tool call: updates last_seen_at and increments counters.
+    on_call_tool — Phase 1 (first tool call only):
+        Pop the pending metadata entry and INSERT the mcp_session row using
+        the "mcp-session-id" HTTP header as the primary key.
+        After commit, set session_row_exists = True and write to
+        _session_client_info so AuditMiddleware can read it.
 
-    On reconnect (initialize with an existing ``mcp-session-id`` in headers):
-    upserts the row directly from on_initialize.
+        Task 3 / Task 7 fix — FK violation guard:
+            session_row_exists starts as False and is only set True after
+            conn.commit() succeeds.  If the INSERT raises (e.g. transient DB
+            error), we set session_id = None and session_row_exists = False so
+            the Phase 3 UPDATE is skipped and AuditMiddleware writes NULL
+            session_id — preventing a FK violation in query_episode.
+
+    on_call_tool — Phase 2:
+        Execute the actual tool call via call_next().
+
+    on_call_tool — Phase 3 (every tool call, in finally):
+        UPDATE mcp_session counters (last_seen_at, total_calls, total_errors).
+        Guarded on `session_id is not None and session_row_exists` (Task 7):
+        never attempts the UPDATE against a row that was never committed.
+
+    on_initialize (reconnect):
+        The client sends the existing session ID in the "mcp-session-id"
+        request header.  We upsert the row directly and populate
+        _session_client_info without overwriting an existing live entry.
     """
 
     def __init__(self, pool_factory: Callable[[], AsyncConnectionPool]) -> None:
@@ -120,6 +187,9 @@ class SessionMiddleware(Middleware):
                 req = get_http_request()
                 _xff = req.headers.get("x-forwarded-for")
                 _peer = req.client.host if req.client else None
+                # on_initialize always uses hops=0 (peer) because TRUSTED_PROXY_HOPS
+                # is not yet loaded here; the full config-driven resolution happens
+                # in on_call_tool via AuditMiddleware.
                 client_ip = _resolve_client_ip(
                     xff=_xff, peer_host=_peer, trusted_proxy_hops=0
                 )
@@ -130,7 +200,9 @@ class SessionMiddleware(Middleware):
                 pass
 
             if existing_http_sid:
-                # Reconnecting client: session row already exists; upsert it.
+                # ── Reconnect path ──────────────────────────────────────────
+                # The client already has a session; upsert the row so that
+                # last_seen_at stays fresh even on reconnect.
                 pool = self._pool_factory()
                 async with pool.connection() as conn:
                     await conn.execute(
@@ -145,8 +217,9 @@ class SessionMiddleware(Middleware):
                         (existing_http_sid, client_name, client_version, client_ip, user_agent),
                     )
                     await conn.commit()
-                # Persist client info for the reconnected session (don't overwrite
-                # an existing entry if it already holds the same info).
+                # Persist client info for the reconnected session.
+                # Do NOT overwrite an existing live entry — it may already hold
+                # richer data from the initial connection (Task 5).
                 if existing_http_sid not in _session_client_info:
                     _session_client_info[existing_http_sid] = {
                         "client_name": client_name,
@@ -160,11 +233,12 @@ class SessionMiddleware(Middleware):
                     client_ip=client_ip,
                 )
             else:
-                # First connection: the HTTP transport will assign a session ID and
-                # return it in the response header.  We cannot read that header here
-                # (it is added after the handler returns), so we cache the metadata
-                # and let on_call_tool insert the row once the header is visible in
-                # the next request.
+                # ── First-connection path ───────────────────────────────────
+                # The HTTP transport will assign the session ID and return it
+                # in the response header.  We cannot read that header here
+                # (it is added after this handler returns), so cache the
+                # metadata and let on_call_tool INSERT the row on the next
+                # request when the header is already present.
                 _pending_metadata[fastmcp_sid] = {
                     "client_name": client_name,
                     "client_version": client_version,
@@ -185,10 +259,21 @@ class SessionMiddleware(Middleware):
         session_id: str | None = None
 
         # ── Phase 1: ensure the session row EXISTS before the tool executes ──
-        # AuditMiddleware (inner middleware) writes query_episode in its own
-        # finally block, which unwinds BEFORE this finally block.  The FK
-        # query_episode.session_id → mcp_session.session_id therefore requires
-        # the mcp_session row to be present before call_next returns.
+        #
+        # Why Phase 1 must complete before call_next (Task 3 / Task 7):
+        #   AuditMiddleware is an inner middleware whose finally block runs
+        #   BEFORE this finally block (inner middleware unwinds first).
+        #   query_episode.session_id is a FK → mcp_session.session_id, so the
+        #   mcp_session row must be committed before AuditMiddleware writes the
+        #   episode.  If we deferred the INSERT to the finally block here it
+        #   would run AFTER the FK-constrained episode INSERT, causing a
+        #   violation.
+        #
+        # FK-safe flag (Task 3):
+        #   session_row_exists starts False.  It is only set True after
+        #   conn.commit() returns successfully.  If the INSERT raises, we set
+        #   session_id = None so AuditMiddleware writes NULL (no FK) and Phase
+        #   3 skips the UPDATE (Task 7).
         session_row_exists = False  # True only after a successful DB commit
         if fastmcp_ctx is not None:
             try:
@@ -203,11 +288,15 @@ class SessionMiddleware(Middleware):
                 except Exception:
                     pass
 
+                # Prefer the HTTP transport session ID (stable, matches the DB
+                # PK); fall back to the fastmcp internal ID for non-HTTP transports.
                 session_id = http_sid or fastmcp_sid
 
-                # Pop pending metadata captured during on_initialize (first call only).
+                # Pop pending metadata captured during on_initialize.
+                # None means this is not the first tool call for this session.
                 meta = _pending_metadata.pop(fastmcp_sid, None)
                 if meta is not None:
+                    # ── First tool call: INSERT the session row ─────────────
                     pool = self._pool_factory()
                     async with pool.connection() as conn:
                         await conn.execute(
@@ -227,9 +316,10 @@ class SessionMiddleware(Middleware):
                             ),
                         )
                         await conn.commit()
-                    session_row_exists = True  # row committed successfully
+                    # Only set True here — after commit succeeds (Task 3).
+                    session_row_exists = True
                     # Populate the persistent cache so AuditMiddleware can read
-                    # client_name/version on this and all future calls.
+                    # client_name/version on this and all future calls (Task 5).
                     _session_client_info[session_id] = {
                         "client_name": meta["client_name"],
                         "client_version": meta["client_version"],
@@ -242,15 +332,19 @@ class SessionMiddleware(Middleware):
                         client_ip=meta["client_ip"],
                     )
                 else:
-                    # No pending metadata means the row was inserted on the
-                    # reconnect path in on_initialize; assume it exists.
+                    # No pending metadata → row was inserted on the reconnect
+                    # path in on_initialize; assume it exists.
                     session_row_exists = True
             except Exception as exc:
                 log.warning("session_setup_failed", error=str(exc))
-                session_id = None       # prevent downstream FK violation
+                # Do NOT let a broken session setup propagate a FK violation.
+                # Nulling session_id causes AuditMiddleware to write NULL
+                # (allowed by the column) and Phase 3 to skip the UPDATE
+                # (Task 3 + Task 7).
+                session_id = None
                 session_row_exists = False
 
-        # ── Phase 2: execute the tool call ──
+        # ── Phase 2: execute the tool call ──────────────────────────────────
         had_error = False
         result: Any = None
         try:
@@ -259,7 +353,10 @@ class SessionMiddleware(Middleware):
             had_error = True
             raise
         finally:
-            # ── Phase 3: update counters (after AuditMiddleware has already written) ──
+            # ── Phase 3: update counters ─────────────────────────────────────
+            # Guarded on session_row_exists (Task 7): if Phase 1 never committed
+            # a row, this UPDATE would silently match zero rows at best or raise
+            # a FK error at worst — skip it entirely.
             if session_id is not None and session_row_exists:
                 try:
                     pool = self._pool_factory()
@@ -289,8 +386,20 @@ async def idle_session_reaper(
 ) -> None:
     """Background task: mark idle sessions ended every check_interval_seconds.
 
-    Also evicts entries from _session_client_info for reaped sessions so that
-    the in-memory cache does not grow unboundedly.
+    Two-stage eviction from _session_client_info (Task 6 — memory bound):
+
+    Stage 1 — DB-driven:
+        Sessions marked ended (ended_at IS NULL → ended_at = now()) are
+        returned by the RETURNING clause.  Their cache entries are evicted
+        immediately so the dict cannot grow with orphaned entries.
+
+    Stage 2 — TTL sweep:
+        Evicts cache entries whose inserted_at is older than idle_seconds
+        regardless of DB state.  Guards against sessions that started but
+        never made a tool call (so no mcp_session row exists to reap).
+
+    Shutdown:
+        Exits cleanly when shutdown_event is set or the coroutine is cancelled.
     """
     while True:
         if shutdown_event is not None and shutdown_event.is_set():
@@ -317,12 +426,14 @@ async def idle_session_reaper(
                 rows = await cur.fetchall()
                 await conn.commit()
             if rows:
+                # Stage 1: evict cache entries for sessions reaped from the DB.
                 reaped_ids = [row[0] for row in rows]
                 for sid in reaped_ids:
                     _session_client_info.pop(sid, None)
                 log.info("sessions_reaped_idle", count=len(rows))
-            # Also evict cache entries older than idle_seconds that may have
-            # accumulated without a matching DB row (e.g. never got a tool call).
+            # Stage 2: TTL sweep — evict stale cache entries that have no
+            # corresponding DB row (e.g. session initialised but never called
+            # a tool, so mcp_session was never inserted).
             cutoff = time.monotonic() - idle_seconds
             stale = [
                 sid for sid, info in _session_client_info.items()
@@ -337,7 +448,11 @@ async def idle_session_reaper(
 
 
 async def mark_sessions_shutdown(pool: AsyncConnectionPool) -> None:
-    """Mark all open sessions as ended with reason='shutdown'. Called in lifespan teardown."""
+    """Mark all open sessions as ended with reason='shutdown'.
+
+    Called during FastAPI lifespan teardown.  Also clears _session_client_info
+    entirely (Task 6) so no stale entries linger after the process restarts.
+    """
     try:
         async with pool.connection() as conn:
             await conn.execute(
@@ -352,4 +467,6 @@ async def mark_sessions_shutdown(pool: AsyncConnectionPool) -> None:
     except Exception as exc:
         log.warning("mark_sessions_shutdown_failed", error=str(exc))
     finally:
+        # Clear regardless of DB success so the cache is always consistent
+        # with the next process startup (Task 6).
         _session_client_info.clear()
