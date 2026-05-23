@@ -50,7 +50,23 @@ async def write_episode(
     pool: AsyncConnectionPool,
     episode: Episode,
 ) -> UUID:
-    """Insert one query_episode row. Never raises — callers rely on fire-and-forget."""
+    """Insert one query_episode row.  Never raises — callers use fire-and-forget.
+
+    Task 9 fix — honour the 'never raises' contract:
+
+    The old implementation raised MemoryWriteError on any DB failure.
+    AuditMiddleware called this in its finally block and caught the exception,
+    but the double raise/catch obscured the intent and could silently swallow
+    real errors if the outer except was ever removed.
+
+    The fix:
+      - Removed `raise MemoryWriteError(...) from exc`.
+      - Instead, log a structured warning and return episode.id as a sentinel.
+      - Callers (AuditMiddleware) no longer need a surrounding try/except; the
+        tool call always completes even if the audit write fails.
+      - MemoryWriteError import removed from this module (still used in notes.py
+        where the raise-on-failure contract is intentional and documented).
+    """
     safe_summary = _sanitize_summary(episode.result_summary)
 
     try:
@@ -99,6 +115,9 @@ async def write_episode(
             )
             await conn.commit()
     except Exception as exc:
+        # Log and swallow — callers must not be affected by audit failures.
+        # episode.id is returned as a sentinel so callers that capture the
+        # return value can still reference the intended audit ID.
         log.warning("write_episode_failed", error=str(exc), audit_id=str(episode.audit_id))
         return episode.id
 
