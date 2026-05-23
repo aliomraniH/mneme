@@ -40,9 +40,11 @@ class AuditMiddleware(Middleware):
         namespace_keywords_factory: (
             Callable[[], dict[str, list[str]] | None] | None
         ) = None,
+        trusted_proxy_hops: int = 0,
     ) -> None:
         self._pool_factory = pool_factory
         self._namespace_keywords_factory = namespace_keywords_factory
+        self._trusted_proxy_hops = trusted_proxy_hops
 
     async def on_call_tool(
         self,
@@ -73,14 +75,15 @@ class AuditMiddleware(Middleware):
             with suppress(Exception):
                 from fastmcp.server.dependencies import get_http_request
 
+                from agent_service.middleware.session import _resolve_client_ip
+
                 req = get_http_request()
-                # X-Forwarded-For may be a comma-separated chain of IPs when
-                # requests pass through multiple Replit proxy layers.
-                # ::inet only accepts a single address — take the leftmost one.
                 _xff = req.headers.get("x-forwarded-for")
-                client_ip = (
-                    _xff.split(",")[0].strip() if _xff
-                    else (req.client.host if req.client else None)
+                _peer = req.client.host if req.client else None
+                client_ip = _resolve_client_ip(
+                    xff=_xff,
+                    peer_host=_peer,
+                    trusted_proxy_hops=self._trusted_proxy_hops,
                 )
                 user_agent_str = req.headers.get("user-agent")
                 # Use the HTTP transport session ID (same key as SessionMiddleware uses).
@@ -95,6 +98,17 @@ class AuditMiddleware(Middleware):
                 with suppress(RuntimeError):
                     session_id = fastmcp_ctx.session_id
 
+            # Read client_name / client_version from the persistent session cache
+            # populated by SessionMiddleware after the first successful INSERT.
+            if session_id is not None:
+                with suppress(Exception):
+                    from agent_service.middleware.session import get_session_client_info
+
+                    info = get_session_client_info(session_id)
+                    if info is not None:
+                        client_name = info.get("client_name")
+                        client_version = info.get("client_version")
+
         start = time.monotonic()
         error_msg: str | None = None
         result_content: Any = None
@@ -108,9 +122,13 @@ class AuditMiddleware(Middleware):
             raise
         finally:
             duration_ms = int((time.monotonic() - start) * 1000)
-            row_count: int | None = (
-                len(result_content) if isinstance(result_content, list) else None
-            )
+            if isinstance(result_content, list):
+                row_count: int | None = len(result_content)
+            elif isinstance(result_content, dict):
+                rc = result_content.get("row_count")
+                row_count = int(rc) if isinstance(rc, int) else None
+            else:
+                row_count = None
             summary, was_truncated = truncate_result_summary(result_content)
 
             episode = Episode(
@@ -131,16 +149,8 @@ class AuditMiddleware(Middleware):
                 truncated=was_truncated,
             )
 
-            try:
-                pool = self._pool_factory()
-                await write_episode(pool, episode)
-            except Exception as write_exc:
-                log.warning(
-                    "audit_write_failed",
-                    tool_name=tool_name,
-                    error=str(write_exc),
-                    audit_id=str(audit_id),
-                )
+            pool = self._pool_factory()
+            await write_episode(pool, episode)
 
             log.info(
                 "tool_call",
