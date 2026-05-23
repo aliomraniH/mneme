@@ -76,6 +76,7 @@ mneme.add_middleware(
     AuditMiddleware(
         pool_factory=_get_pool,
         namespace_keywords_factory=_get_namespace_keywords,
+        trusted_proxy_hops=get_settings().trusted_proxy_hops,
     )
 )
 
