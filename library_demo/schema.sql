@@ -1,5 +1,5 @@
 -- library-demo schema + seed data
--- Apply once against DATABASE_URL_NEON_PURPLE_KITE.
+-- Apply once against DATABASE_URL_LIBRARY_DEMO.
 -- Safe to re-run: all DDL uses IF NOT EXISTS / ON CONFLICT DO NOTHING.
 
 -- ── Tables ──────────────────────────────────────────────────────────────────
