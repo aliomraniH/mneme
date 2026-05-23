@@ -36,9 +36,22 @@ def route_to_namespace(
     keywords = namespace_keywords if namespace_keywords else _DEFAULT_NAMESPACE_KEYWORDS
     blob = (tool_name + " " + _safe_dumps(params)).lower()
 
+    # Pass 1: tool-name prefix wins over keyword matching.
+    # By convention every namespace's keyword list includes its tool prefix
+    # (e.g. "lib_", "saaz_", "neon_") as an explicit marker.  When the tool
+    # name starts with such a prefix, honour that as authoritative — it
+    # prevents false matches when keyword lists share terms (e.g. "genre").
+    if "_" in tool_name:
+        prefix = tool_name.split("_", 1)[0] + "_"
+        for ns, kws in keywords.items():
+            if prefix in kws:
+                return ns
+
+    # Pass 2: substring scan over tool_name + serialised params (fallback).
     for ns, kws in keywords.items():
         if any(kw in blob for kw in kws):
             return ns
+
     return "default"
 
 
