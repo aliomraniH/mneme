@@ -4,11 +4,13 @@ import re
 from typing import Any
 from uuid import UUID
 
+import structlog
 from psycopg.types.json import Json
 from psycopg_pool import AsyncConnectionPool
 
-from agent_service.errors import MemoryWriteError
 from agent_service.models import Episode
+
+log = structlog.get_logger(__name__)
 
 # Strip <|...|>-style tokens and obvious injection phrases before writing to DB.
 _TOKEN_RE = re.compile(r"<\|[^|]*\|>")
@@ -97,7 +99,8 @@ async def write_episode(
             )
             await conn.commit()
     except Exception as exc:
-        raise MemoryWriteError(f"write_episode failed: {exc}") from exc
+        log.warning("write_episode_failed", error=str(exc), audit_id=str(episode.audit_id))
+        return episode.id
 
     return episode.id
 
