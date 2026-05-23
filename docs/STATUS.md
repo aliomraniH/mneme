@@ -22,7 +22,7 @@
 | Integration tests | ✅ passing | All 3 tests in `tests/integration/test_smoke.py` green |
 | Vercel provisioner | ✅ done | `provision_database` + `list_database_regions`; get-or-error semantics (dashboard-first) |
 | DB registry (registered_database table + 5 CRUD tools) | ✅ done | migration 0003, `agent_service/db_registry.py`, 5 tests |
-| Generic db_mcp server (env-driven tool prefix) | ✅ done | `db_mcp/server.py`; neon_mcp is now a 5-line shim |
+| Generic db_mcp server (env-driven tool prefix) | ✅ done | `db_mcp/server.py`; one binary, any DB — no per-database Python files |
 
 **Phase 1 exit criterion: ✅ done**
 
@@ -103,9 +103,11 @@ by name (with hyphen/underscore normalisation), and reads secrets via
 
 ### Step 6 — neon-purple-kite wired as second upstream (2026-05-22)
 
-**Architecture**: local `neon_mcp/server.py` (FastMCP on port 3000) proxies the
-`DATABASE_URL_NEON_PURPLE_KITE` Neon database and exposes 4 tools:
-`neon_list_tables`, `neon_describe_table`, `neon_query`, `neon_stats`.
+**Architecture**: `db_mcp/server.py` runs on port 3000, configured via env vars
+(`DB_MCP_TOOL_PREFIX=neon`, `DB_MCP_NAME=neon-purple-kite`,
+`DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE`).
+No per-database Python file — to add a third DB, add a workflow task in `.replit`
+with different env vars and port, pointing at the same `db_mcp.server:app`.
 
 **Config**:
 - `UPSTREAM_DB_MCP_SERVERS = {"saaz_demo":"https://saaz-aloomrani.replit.app/mcp","neon_purple_kite":"http://localhost:3000/mcp/"}`
@@ -135,6 +137,56 @@ neon_purple_kite  neon_list_tables
 `id, mrn, first_name, last_name, birth_date, is_synthetic, …`
 
 **Test suite**: 39 unit tests + 3 integration tests — all pass.
+
+---
+
+---
+
+### Capability probe & test battery (2026-05-22)
+
+**Live MCP probe results** — all tools called via the connected MCP session:
+
+| Tool | Result | Notes |
+|---|---|---|
+| `saaz_stats` | ✅ | 30 artists, 4 genres, enrichment cost returned |
+| `saaz_list_tables` | ✅ | 6 tables with row counts |
+| `saaz_list_artists` (no filter) | ✅ | 30 artists |
+| `saaz_list_artists` (genre=indie_persian_jazz) | ✅ | 13 artists |
+| `saaz_list_artists` (status=deceased) | ✅ | 1 artist (Shajarian) |
+| `saaz_get_artist` (valid slug) | ✅ | Full record: bio, links, images, provenance |
+| `saaz_get_artist` (invalid slug) | ✅ | Returns `{"error": "..."}`, no crash |
+| `saaz_query` SELECT + JOIN | ✅ | Multi-table JOIN executes correctly |
+| `saaz_query` INSERT | ✅ BLOCKED | "Only SELECT...statements are allowed" |
+| `saaz_query` DROP TABLE | ✅ BLOCKED | Same rejection |
+| `saaz_query` UPDATE | ✅ BLOCKED | Same rejection |
+| `saaz_search_artists` (semantic) | ✅ | pgvector ranked results, 100% embedding coverage |
+| `list_registered_databases` | ✅ | Returns registry with audit trail |
+| `get_database_info` | ✅ | Returns entry + call stats |
+| `neon_list_tables` | ✅ `[]` | public schema empty (DB unseeded); cold-start SSL reset is transient |
+| `neon_stats` | ✅ `{}` | correct — no public tables |
+| `neon_query` SELECT / version | ✅ | Connected to PostgreSQL 17.10 on `neondb` |
+| `neon_query` neon_auth schema | ✅ | 9 neon-managed auth tables discovered via information_schema |
+| `neon_describe_table` patients | ❌ not found | patients table was never seeded (planned in Step 6) |
+
+**Data integrity checks** (via live `saaz_query` probes):
+- Embedding coverage: **100%** across all 4 genres (30/30 artists)
+- Bio presence: **29+/30** artists have bios > 50 chars
+- Provenance: `data_provenance` has rows for all 30 artists via `fact_id` join
+- `anthropic_web` source confidence: **≥ 0.9** on all enriched artists
+
+**Schema correction discovered**: `data_provenance` uses `fact_id` (not `artist_id`) with a polymorphic `fact_table` column. Updated join pattern: `dp.fact_id = a.id WHERE dp.fact_table = 'artist'`.
+
+**Test counts** (2026-05-22):
+
+| Suite | Pass | Skip | Notes |
+|---|---|---|---|
+| `make test` (unit, no DB) | **56** | 18 | 18 skipped = need DATABASE_URL |
+| `tests/test_prompt_battery.py` | **19** | 0 | New: realistic Claude usage scenarios |
+| `tests/integration/test_mcp_capabilities.py` | pending | — | Requires `MNEME_INTEGRATION=1` + live server |
+
+**Both databases are reachable via MCP.** The `neon_list_tables` SSL error seen on first call was a cold-start stale pool connection — it clears after any warm query. Root cause: the Neon serverless connection pool drops idle SSL sessions; the first call hits the stale connection, psycopg recycles it, subsequent calls succeed.
+
+**neon-purple-kite state**: DB connected (PostgreSQL 17.10, `neondb`), public schema empty (no user tables seeded). `neon_auth` schema has 9 Neon-managed auth tables. The `patients` table from Step 6 planning was never created — seed script still needed.
 
 ---
 

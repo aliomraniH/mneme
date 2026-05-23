@@ -1,27 +1,31 @@
 """Generic read-only Postgres MCP server.
 
-Configured entirely via environment variables — no database-specific names
-are baked into this file.  Deploy one instance per database; each instance
-exposes four tools prefixed with DB_MCP_TOOL_PREFIX.
+One binary, any database.  Configure via three environment variables; no
+Python file is ever written per database.  Each running instance exposes
+four tools prefixed with DB_MCP_TOOL_PREFIX.
 
 Required environment variables
 -------------------------------
 DB_MCP_TOOL_PREFIX        Short identifier used as tool-name prefix.
-                          E.g. "neon" → tools are neon_query, neon_list_tables …
+                          E.g. "acme" → tools are acme_query, acme_list_tables …
 DB_MCP_NAME               Human-readable server name (shown in tools/list).
-                          E.g. "neon-purple-kite"
+                          E.g. "acme-prod"
 DB_MCP_DATABASE_URL_ENV   Name of the env var that holds the Postgres DSN.
-                          E.g. "DATABASE_URL_NEON_PURPLE_KITE"
+                          E.g. "DATABASE_URL_ACME"
 
 The DSN itself is read at startup from the env var named by
 DB_MCP_DATABASE_URL_ENV, so credentials are never baked into config files.
 
-Typical startup
----------------
-  DB_MCP_TOOL_PREFIX=neon \\
-  DB_MCP_NAME=neon-purple-kite \\
-  DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE \\
-  uvicorn db_mcp.server:app --host 0.0.0.0 --port 3000
+Adding a new database (no new files needed)
+-------------------------------------------
+1. Add the DSN to Replit Secrets: DATABASE_URL_ACME=postgresql://...
+2. Add a workflow task in .replit:
+     DB_MCP_TOOL_PREFIX=acme DB_MCP_NAME=acme-prod \\
+     DB_MCP_DATABASE_URL_ENV=DATABASE_URL_ACME \\
+     uvicorn db_mcp.server:app --host 0.0.0.0 --port <PORT>
+3. Register the namespace in mneme:
+     UPSTREAM_DB_MCP_SERVERS — add "acme_prod": "http://localhost:<PORT>/mcp/"
+     NAMESPACE_ROUTING_KEYWORDS — add "acme_prod": ["acme_", ...]
 """
 
 from __future__ import annotations

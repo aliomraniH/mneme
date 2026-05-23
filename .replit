@@ -23,6 +23,10 @@ args = "Start application"
 task = "workflow.run"
 args = "Start neon-mcp"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start library-demo"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -41,8 +45,20 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "uvicorn neon_mcp.server:app --host 0.0.0.0 --port 3000"
+args = "DB_MCP_TOOL_PREFIX=neon DB_MCP_NAME=neon-purple-kite DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE uvicorn db_mcp.server:app --host 0.0.0.0 --port 3000"
 waitForPort = 3000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start library-demo"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "DB_MCP_TOOL_PREFIX=lib DB_MCP_NAME=library-demo DB_MCP_DATABASE_URL_ENV=DATABASE_URL_NEON_PURPLE_KITE uvicorn db_mcp.server:app --host 0.0.0.0 --port 3001"
+waitForPort = 3001
 
 [workflows.workflow.metadata]
 outputType = "console"
@@ -50,6 +66,10 @@ outputType = "console"
 [[ports]]
 localPort = 3000
 externalPort = 3002
+
+[[ports]]
+localPort = 3001
+externalPort = 3003
 
 [[ports]]
 localPort = 5000
@@ -62,5 +82,5 @@ run = ["uvicorn", "agent_service.server:app", "--host", "0.0.0.0", "--port", "50
 [userenv]
 
 [userenv.shared]
-UPSTREAM_DB_MCP_SERVERS = "{\"saaz_demo\":\"https://saaz-aloomrani.replit.app/mcp\",\"neon_purple_kite\":\"http://localhost:3000/mcp/\"}"
-NAMESPACE_ROUTING_KEYWORDS = "{\"saaz_demo\":[\"artist\",\"song\",\"saaz\",\"genre\",\"persian\",\"jazz\",\"album\",\"saaz_\"],\"neon_purple_kite\":[\"neon_\",\"patient\",\"mrn\",\"medical\",\"clinical\",\"insurance\",\"neon_purple_kite\"],\"pg_main\":[\"postgres\",\"pg_main\"],\"pinecone_main\":[\"pinecone\",\"embedding\",\"vector\"]}"
+UPSTREAM_DB_MCP_SERVERS = "{\"saaz_demo\":\"https://saaz-aloomrani.replit.app/mcp\",\"neon_purple_kite\":\"http://localhost:3000/mcp/\",\"lib_demo\":\"http://localhost:3001/mcp/\"}"
+NAMESPACE_ROUTING_KEYWORDS = "{\"saaz_demo\":[\"artist\",\"song\",\"saaz\",\"genre\",\"persian\",\"jazz\",\"album\",\"saaz_\"],\"neon_purple_kite\":[\"neon_\",\"patient\",\"mrn\",\"medical\",\"clinical\",\"insurance\",\"neon_purple_kite\"],\"lib_demo\":[\"lib_\",\"book\",\"loan\",\"member\",\"library\",\"genre\",\"author\"],\"pg_main\":[\"postgres\",\"pg_main\"],\"pinecone_main\":[\"pinecone\",\"embedding\",\"vector\"]}"
