@@ -127,6 +127,29 @@ async def test_write_expertise_note_invalid_confidence(
 
 
 @pytest.mark.asyncio
+async def test_write_episode_never_raises_on_db_error() -> None:
+    """write_episode must never propagate DB exceptions — fire-and-forget contract."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    conn = AsyncMock()
+    conn.__aenter__ = AsyncMock(return_value=conn)
+    conn.__aexit__ = AsyncMock(return_value=False)
+    conn.execute = AsyncMock(side_effect=RuntimeError("db down"))
+    conn.commit = AsyncMock()
+    pool = MagicMock()
+    pool.connection = MagicMock(return_value=conn)
+
+    ep = Episode(
+        db_namespace="test",
+        tool_name="ping",
+        tool_params={},
+    )
+    # Must not raise — must return the episode id as sentinel
+    returned = await write_episode(pool, ep)
+    assert returned == ep.id
+
+
+@pytest.mark.asyncio
 async def test_truncation_flag(unit_pool: AsyncConnectionPool) -> None:  # type: ignore[type-arg]
     large_value = "x" * 5000
     ep = Episode(
