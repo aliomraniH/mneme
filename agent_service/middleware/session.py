@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid as _uuid
 from collections.abc import Callable
 from typing import Any
@@ -20,6 +21,42 @@ _IDLE_TIMEOUT_MINUTES = 30
 # can INSERT the session row with the correct HTTP transport session ID.
 # Entries are popped on first tool call to avoid unbounded growth.
 _pending_metadata: dict[str, dict[str, Any]] = {}
+
+# Persistent per-session client-info cache, keyed by the canonical session_id
+# (the http_sid form, i.e. "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+# Populated after the first successful INSERT; retained for the lifetime of
+# the session so AuditMiddleware can read client_name/version on every call.
+# Entries are evicted by idle_session_reaper and mark_sessions_shutdown.
+_session_client_info: dict[str, dict[str, Any]] = {}
+
+
+def get_session_client_info(session_id: str) -> dict[str, Any] | None:
+    """Return cached clientInfo dict for session_id, or None if not found."""
+    return _session_client_info.get(session_id)
+
+
+def _resolve_client_ip(
+    *,
+    xff: str | None,
+    peer_host: str | None,
+    trusted_proxy_hops: int = 0,
+) -> str | None:
+    """Resolve the effective client IP from request headers.
+
+    trusted_proxy_hops=0 (default): use peer_host — the actual TCP peer,
+    cannot be forged by the external caller.
+
+    trusted_proxy_hops=N (N > 0): use XFF[-(N+1)], i.e. the entry N positions
+    from the rightmost in the X-Forwarded-For chain.  Falls back to peer_host
+    when XFF is absent or does not contain enough entries.
+    """
+    if trusted_proxy_hops == 0 or xff is None:
+        return peer_host
+    parts = [p.strip() for p in xff.split(",")]
+    # We need at least N+1 entries to safely trust entry [-(N+1)]
+    if len(parts) <= trusted_proxy_hops:
+        return peer_host
+    return parts[-(trusted_proxy_hops + 1)]
 
 
 def _normalize_sid(raw: str) -> str:
@@ -81,13 +118,10 @@ class SessionMiddleware(Middleware):
                 from fastmcp.server.dependencies import get_http_request
 
                 req = get_http_request()
-                # X-Forwarded-For may be a comma-separated chain of IPs when
-                # requests pass through multiple Replit proxy layers.
-                # ::inet only accepts a single address — take the leftmost one.
                 _xff = req.headers.get("x-forwarded-for")
-                client_ip = (
-                    _xff.split(",")[0].strip() if _xff
-                    else (req.client.host if req.client else None)
+                _peer = req.client.host if req.client else None
+                client_ip = _resolve_client_ip(
+                    xff=_xff, peer_host=_peer, trusted_proxy_hops=0
                 )
                 user_agent = req.headers.get("user-agent")
                 raw = req.headers.get("mcp-session-id")
@@ -111,6 +145,14 @@ class SessionMiddleware(Middleware):
                         (existing_http_sid, client_name, client_version, client_ip, user_agent),
                     )
                     await conn.commit()
+                # Persist client info for the reconnected session (don't overwrite
+                # an existing entry if it already holds the same info).
+                if existing_http_sid not in _session_client_info:
+                    _session_client_info[existing_http_sid] = {
+                        "client_name": client_name,
+                        "client_version": client_version,
+                        "inserted_at": time.monotonic(),
+                    }
                 log.info(
                     "session_started",
                     session_id=existing_http_sid,
@@ -147,6 +189,7 @@ class SessionMiddleware(Middleware):
         # finally block, which unwinds BEFORE this finally block.  The FK
         # query_episode.session_id → mcp_session.session_id therefore requires
         # the mcp_session row to be present before call_next returns.
+        session_row_exists = False  # True only after a successful DB commit
         if fastmcp_ctx is not None:
             try:
                 fastmcp_sid = fastmcp_ctx.session_id
@@ -184,14 +227,28 @@ class SessionMiddleware(Middleware):
                             ),
                         )
                         await conn.commit()
+                    session_row_exists = True  # row committed successfully
+                    # Populate the persistent cache so AuditMiddleware can read
+                    # client_name/version on this and all future calls.
+                    _session_client_info[session_id] = {
+                        "client_name": meta["client_name"],
+                        "client_version": meta["client_version"],
+                        "inserted_at": time.monotonic(),
+                    }
                     log.info(
                         "session_started",
                         session_id=session_id,
                         client_name=meta["client_name"],
                         client_ip=meta["client_ip"],
                     )
+                else:
+                    # No pending metadata means the row was inserted on the
+                    # reconnect path in on_initialize; assume it exists.
+                    session_row_exists = True
             except Exception as exc:
                 log.warning("session_setup_failed", error=str(exc))
+                session_id = None       # prevent downstream FK violation
+                session_row_exists = False
 
         # ── Phase 2: execute the tool call ──
         had_error = False
@@ -203,7 +260,7 @@ class SessionMiddleware(Middleware):
             raise
         finally:
             # ── Phase 3: update counters (after AuditMiddleware has already written) ──
-            if session_id is not None:
+            if session_id is not None and session_row_exists:
                 try:
                     pool = self._pool_factory()
                     async with pool.connection() as conn:
@@ -230,7 +287,11 @@ async def idle_session_reaper(
     check_interval_seconds: int = 60,
     shutdown_event: asyncio.Event | None = None,
 ) -> None:
-    """Background task: mark idle sessions ended every check_interval_seconds."""
+    """Background task: mark idle sessions ended every check_interval_seconds.
+
+    Also evicts entries from _session_client_info for reaped sessions so that
+    the in-memory cache does not grow unboundedly.
+    """
     while True:
         if shutdown_event is not None and shutdown_event.is_set():
             break
@@ -256,7 +317,19 @@ async def idle_session_reaper(
                 rows = await cur.fetchall()
                 await conn.commit()
             if rows:
+                reaped_ids = [row[0] for row in rows]
+                for sid in reaped_ids:
+                    _session_client_info.pop(sid, None)
                 log.info("sessions_reaped_idle", count=len(rows))
+            # Also evict cache entries older than idle_seconds that may have
+            # accumulated without a matching DB row (e.g. never got a tool call).
+            cutoff = time.monotonic() - idle_seconds
+            stale = [
+                sid for sid, info in _session_client_info.items()
+                if info.get("inserted_at", float("inf")) < cutoff
+            ]
+            for sid in stale:
+                _session_client_info.pop(sid, None)
         except asyncio.CancelledError:
             break
         except Exception as exc:
@@ -278,3 +351,5 @@ async def mark_sessions_shutdown(pool: AsyncConnectionPool) -> None:
             await conn.commit()
     except Exception as exc:
         log.warning("mark_sessions_shutdown_failed", error=str(exc))
+    finally:
+        _session_client_info.clear()
