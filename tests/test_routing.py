@@ -87,3 +87,26 @@ def test_route_does_not_raise_on_non_serializable_params() -> None:
     """_safe_dumps must not propagate exceptions."""
     result = route_to_namespace("some_tool", {"obj": object()})
     assert isinstance(result, str)
+
+
+def test_lib_query_with_genre_routes_to_lib_demo() -> None:
+    """Tool prefix must win over shared keywords (e.g. 'genre' in both namespaces)."""
+    kws: dict[str, list[str]] = {
+        "saaz_demo": ["genre", "saaz_"],
+        "lib_demo": ["lib_", "genre"],
+    }
+    assert (
+        route_to_namespace(
+            "lib_query", {"sql": "SELECT genre FROM book"}, namespace_keywords=kws
+        )
+        == "lib_demo"
+    )
+    assert (
+        route_to_namespace(
+            "saaz_query", {"sql": "SELECT genre FROM artist"}, namespace_keywords=kws
+        )
+        == "saaz_demo"
+    )
+    assert (
+        route_to_namespace("lib_list_tables", {}, namespace_keywords=kws) == "lib_demo"
+    )
