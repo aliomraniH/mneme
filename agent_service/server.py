@@ -76,6 +76,9 @@ mneme.add_middleware(
     AuditMiddleware(
         pool_factory=_get_pool,
         namespace_keywords_factory=_get_namespace_keywords,
+        # Task 10: wire the configured hop count from Settings so that
+        # AuditMiddleware uses _resolve_client_ip() correctly.  The value
+        # comes from the TRUSTED_PROXY_HOPS env var (default 0 = use peer).
         trusted_proxy_hops=get_settings().trusted_proxy_hops,
     )
 )
