@@ -44,6 +44,7 @@ from agent_service.middleware.session import (
 from agent_service.middleware.timeout import TimeoutMiddleware
 from agent_service.provision import register_provision_tools
 from agent_service.proxy import build_mneme_server
+from agent_service.warmup import register_warmup_tools
 
 # ---------------------------------------------------------------------------
 # Module-level: pool reference (set once in lifespan, never mutated after)
@@ -162,6 +163,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     register_provision_tools(mneme, settings)
     register_db_registry_tools(mneme, _get_pool)
     register_history_tools(mneme, _get_pool)
+    register_warmup_tools(mneme, _get_pool, settings)
 
     # Start idle session reaper background task
     shutdown_event = asyncio.Event()

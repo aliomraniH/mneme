@@ -45,6 +45,7 @@ async def apply_pending_migrations(pool: AsyncConnectionPool) -> None:
     pending = [
         mdir / "0002_sessions.sql",
         mdir / "0003_database_registry.sql",
+        mdir / "0004_project_memory.sql",
     ]
     existing = [p for p in pending if p.exists()]
     if existing:

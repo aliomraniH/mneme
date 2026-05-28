@@ -62,6 +62,24 @@ class Settings(BaseSettings):
     langchain_tracing_v2: bool = False
     langsmith_project: str = "mneme"
 
+    # Embedding providers (Phase 2.5 — warm_up / thread_refresh / summaries).
+    # Anthropic has no embeddings endpoint; set one of these for semantic
+    # ranking. If neither is set, mneme falls back to rule-based ranking.
+    openai_api_key: SecretStr | None = None
+    voyage_api_key: SecretStr | None = None
+    embedding_dimensions: int = 1536  # text-embedding-3-small native
+
+    # Project-scoped extended memory (Phase 2.5).
+    # MNEME_PROJECT_ID is the fallback project label when a request does not
+    # carry an X-Mneme-Project header. Each Claude project should set that
+    # header in its .mcp.json so its memory stays isolated.
+    mneme_project_id: str = "default"
+    warm_up_max_tokens: int = 2000
+    thread_refresh_max_tokens: int = 1200
+    # Cosine-similarity threshold above which a new memory is merged into an
+    # existing one instead of creating a duplicate row.
+    memory_dedup_threshold: float = 0.92
+
     # Server
     mcp_server_host: str = "0.0.0.0"
     mcp_server_port: int = 5000

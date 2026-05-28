@@ -65,6 +65,30 @@ class McpSession(BaseModel):
     total_errors: int = 0
 
 
+class MemoryEntry(BaseModel):
+    """One row of project-scoped extended memory (project_memory table)."""
+
+    id: UUID = Field(default_factory=uuid4)
+    project_id: str
+    db_namespace: str
+    scope: Literal["project", "general"] = "project"
+    entry_type: Literal["thread_summary", "expertise", "schema_fact", "user_note"] = (
+        "thread_summary"
+    )
+    content: str
+    key_findings: list[str] = Field(default_factory=list)
+    confidence: float = 0.7
+    source: Literal[
+        "thread_summary", "warm_up_summary", "user_confirmed", "agent_inferred"
+    ] = "agent_inferred"
+    call_count: int = 0
+    last_used_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    def context_key(self) -> str:
+        """Stable key used by the session context cache for drop/retain diffs."""
+        return f"{self.entry_type}:{self.id}"
+
+
 @dataclass(slots=True)
 class Event:
     """Forward-compat envelope. At Phase 3 this swaps to Redis Streams / NATS."""

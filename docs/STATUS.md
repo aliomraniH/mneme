@@ -211,6 +211,33 @@ neon_purple_kite  neon_list_tables
 - `get_advisories` returns `schema_drift` when two snapshots have different hashes ✅
 - `AdvisoryMiddleware` injects advisories into every upstream tool response ✅
 - LangGraph agent loop deferred — advisors are rule-based for Phase 2 MVP ⏳
-## Phase 2.5 — Per-DB experts (not started)
+## Phase 2.5 — Extended memory + context lifecycle ✅ done
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| migration `0004_project_memory.sql` | ✅ done | `project_memory` + `session_context_cache` + `project_id` columns on mcp_session/query_episode/expertise_note |
+| `embeddings.py` | ✅ done | Provider auto-detect (OpenAI→Voyage→none); graceful rule-based fallback; LRU cache; never raises |
+| `memory/project.py` | ✅ done | `write_memory` (semantic + content dedup), `search_memory` (hybrid 0.5 sim/0.3 freq/0.2 recency; rule-based fallback), `increment_call_counts`, `list_memory` |
+| `memory/context_cache.py` | ✅ done | Versioned per-session context snapshot; atomic MAX(version)+1 |
+| `warm_up` tool | ✅ done | Primes session: schema digest + top-K memory within token budget; writes cache v1 |
+| `thread_refresh` tool | ✅ done | Returns drop/add **delta** as focus shifts; logs its own summary to memory |
+| `log_context_summary` tool | ✅ done | Self-improving loop: persists findings at end of message; near-dup merge |
+| `remember` tool | ✅ done | User-confirmed facts at confidence 1.0; project or general scope |
+| `get_project_memory` tool | ✅ done | Lists project knowledge, content UNTRUSTED-wrapped |
+| Project identity | ✅ done | `X-Mneme-Project` header (per-project `.mcp.json`), `MNEME_PROJECT_ID` fallback; captured into `mcp_session.project_id` |
+| Scope model | ✅ done | `project` vs `general`; opt-in blend via `include_general` |
+| Unit tests | ✅ done | 17 in `test_warmup_tools.py` + 15 in `test_project_memory.py` (DB-backed) |
+| `.env.example` | ✅ done | OpenAI/Voyage keys, EMBEDDING_DIMENSIONS, MNEME_PROJECT_ID, WARM_UP/THREAD_REFRESH budgets, dedup threshold |
+
+**Note on embeddings:** Anthropic has no embeddings API. Semantic ranking
+needs `OPENAI_API_KEY` (1536-dim native) or `VOYAGE_API_KEY`. Without either,
+mneme ranks by frequency+recency — all tools still function.
+
+**Cache-management design:** warm_up = large/stable (front of context, stays in
+the prompt-cache prefix); thread_refresh = small/volatile delta (tail). MCP
+cannot evict emitted tokens, so refresh returns `drop_keys` + supersede
+instruction and keeps additions reconstructable, minimizing footprint growth.
+
+## Phase 2.5b — Per-DB experts (not started)
 ## Phase 3 — Surface (not started)
 ## Phase 4 — Approve and act (deferred)

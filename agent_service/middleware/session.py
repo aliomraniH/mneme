@@ -180,6 +180,7 @@ class SessionMiddleware(Middleware):
 
             client_ip: str | None = None
             user_agent: str | None = None
+            project_id: str | None = None
             existing_http_sid: str | None = None
             try:
                 from fastmcp.server.dependencies import get_http_request
@@ -194,6 +195,7 @@ class SessionMiddleware(Middleware):
                     xff=_xff, peer_host=_peer, trusted_proxy_hops=0
                 )
                 user_agent = req.headers.get("user-agent")
+                project_id = req.headers.get("x-mneme-project")
                 raw = req.headers.get("mcp-session-id")
                 existing_http_sid = _normalize_sid(raw) if raw else None
             except Exception:
@@ -209,12 +211,15 @@ class SessionMiddleware(Middleware):
                         """
                         INSERT INTO mcp_session (
                             session_id, client_name, client_version,
-                            client_ip, user_agent
-                        ) VALUES (%s, %s, %s, %s::inet, %s)
+                            client_ip, user_agent, project_id
+                        ) VALUES (%s, %s, %s, %s::inet, %s, %s)
                         ON CONFLICT (session_id) DO UPDATE
                             SET last_seen_at = now()
                         """,
-                        (existing_http_sid, client_name, client_version, client_ip, user_agent),
+                        (
+                            existing_http_sid, client_name, client_version,
+                            client_ip, user_agent, project_id,
+                        ),
                     )
                     await conn.commit()
                 # Persist client info for the reconnected session.
@@ -244,6 +249,7 @@ class SessionMiddleware(Middleware):
                     "client_version": client_version,
                     "client_ip": client_ip,
                     "user_agent": user_agent,
+                    "project_id": project_id,
                 }
         except Exception as exc:
             log.warning("session_init_failed", error=str(exc))
@@ -303,8 +309,8 @@ class SessionMiddleware(Middleware):
                             """
                             INSERT INTO mcp_session (
                                 session_id, client_name, client_version,
-                                client_ip, user_agent
-                            ) VALUES (%s, %s, %s, %s::inet, %s)
+                                client_ip, user_agent, project_id
+                            ) VALUES (%s, %s, %s, %s::inet, %s, %s)
                             ON CONFLICT (session_id) DO NOTHING
                             """,
                             (
@@ -313,6 +319,7 @@ class SessionMiddleware(Middleware):
                                 meta["client_version"],
                                 meta["client_ip"],
                                 meta["user_agent"],
+                                meta.get("project_id"),
                             ),
                         )
                         await conn.commit()
