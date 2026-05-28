@@ -32,7 +32,9 @@ from starlette.responses import JSONResponse
 
 from agent_service.config import Settings, get_settings
 from agent_service.db_registry import load_active_databases, register_db_registry_tools
+from agent_service.history import register_history_tools
 from agent_service.memory.store import apply_pending_migrations, create_pool
+from agent_service.middleware.advisory import AdvisoryMiddleware
 from agent_service.middleware.audit import AuditMiddleware
 from agent_service.middleware.session import (
     SessionMiddleware,
@@ -80,6 +82,12 @@ mneme.add_middleware(
         # AuditMiddleware uses _resolve_client_ip() correctly.  The value
         # comes from the TRUSTED_PROXY_HOPS env var (default 0 = use peer).
         trusted_proxy_hops=get_settings().trusted_proxy_hops,
+    )
+)
+mneme.add_middleware(
+    AdvisoryMiddleware(
+        pool_factory=_get_pool,
+        namespace_keywords_factory=_get_namespace_keywords,
     )
 )
 
@@ -153,6 +161,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Register native agent-owned tools
     register_provision_tools(mneme, settings)
     register_db_registry_tools(mneme, _get_pool)
+    register_history_tools(mneme, _get_pool)
 
     # Start idle session reaper background task
     shutdown_event = asyncio.Event()
@@ -247,7 +256,7 @@ async def root() -> dict[str, Any]:
     return {
         "service": "mneme",
         "version": app.version,
-        "phase": "1",
+        "phase": "2",
         "endpoints": ["/healthz", "/", "/mcp"],
     }
 

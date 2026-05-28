@@ -27,3 +27,11 @@ class SessionError(MnemeError):
 
 class ProvisionError(MnemeError):
     """Database provisioning at a cloud provider failed."""
+
+
+class SchemaError(MnemeError):
+    """Schema introspection or snapshot operation failed."""
+
+
+class AdvisoryError(MnemeError):
+    """An advisory computation failed."""

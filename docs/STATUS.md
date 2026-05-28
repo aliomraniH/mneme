@@ -190,7 +190,27 @@ neon_purple_kite  neon_list_tables
 
 ---
 
-## Phase 2 — Advise (not started)
+## Phase 2 — Advise ✅ done
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| `SchemaDriftAdvisor` | ✅ done | Compares last 2 `db_schema_snapshot` hashes; emits `schema_drift` advisory |
+| `CacheStaleAdvisor` | ✅ done | Scans `cache_event` for expired TTLs without invalidation |
+| `ConflictAdvisor` | ✅ done | Detects row-count variance (>5%) across recent episodes for same tool |
+| `memory/schema.py` | ✅ done | `write_schema_snapshot`, `get_latest_snapshot`, `get_snapshot_history` |
+| `AdvisoryMiddleware` | ✅ done | Runs schema + cache advisors after every upstream tool call; injects into `meta.advisories` |
+| `get_query_history` tool | ✅ done | Paginated `query_episode` log; `result_summary` wrapped in `<<<UNTRUSTED_DATA>>>` |
+| `get_schema_summary` tool | ✅ done | Returns latest `db_schema_snapshot` + history for a namespace |
+| `refresh_schema` tool | ✅ done | Introspects upstream via FastMCP `Client`, writes new snapshot row |
+| `get_advisories` tool | ✅ done | On-demand run of all 3 advisors across one or all namespaces |
+| `SchemaError`, `AdvisoryError` | ✅ done | Typed errors added to `errors.py` |
+| Unit tests | ✅ done | 21 tests in `test_advisors.py` + `test_history_tools.py` (skip without DB) |
+| Server wired | ✅ done | `AdvisoryMiddleware` + `register_history_tools` added to `server.py`; phase bumped to "2" |
+
+**Phase 2 exit criterion (partially met):**
+- `get_advisories` returns `schema_drift` when two snapshots have different hashes ✅
+- `AdvisoryMiddleware` injects advisories into every upstream tool response ✅
+- LangGraph agent loop deferred — advisors are rule-based for Phase 2 MVP ⏳
 ## Phase 2.5 — Per-DB experts (not started)
 ## Phase 3 — Surface (not started)
 ## Phase 4 — Approve and act (deferred)
