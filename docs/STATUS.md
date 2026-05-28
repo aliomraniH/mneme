@@ -236,6 +236,37 @@ neon_purple_kite  neon_list_tables
 - All 50 unit tests passing (test_phase2_unit, test_advisors, test_history_tools) ✅
 - Live smoke test 11/11 against `saaz_demo` namespace ✅
 
-## Phase 2.5 — Per-DB experts (not started)
+## Phase 2.5 — Per-DB experts ✅ done
+
+**Deployed: 2026-05-28**
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| `DomainExpertAdvisor` ABC + `EXPERT_REGISTRY` | ✅ done | `agent_service/advisors/expert_base.py`; `register_expert()` + `get_experts()` for namespace dispatch |
+| `SaazMusicExpert` | ✅ done | `agent_service/advisors/saaz_expert.py`; checks: `stale_schema`, `schema_completeness`, `provenance_gap`, `embedding_coverage`, `query_error_spike` |
+| `Advisory.kind` extended | ✅ done | `"domain_expert"` added to `models.py` Literal |
+| `get_advisories` wired | ✅ done | `history.py` imports `saaz_expert` at startup (auto-registers), calls `get_experts(namespace)` after generic three |
+| Unit tests | ✅ done | 11 tests in `tests/test_saaz_expert.py`; all pass |
+
+**SaazMusicExpert checks:**
+- `stale_schema` — no snapshot exists, or most-recent snapshot > 24 h old
+- `schema_completeness` — one or more of the 6 expected tables missing from snapshot
+- `provenance_gap` — snapshot has 1–5 tables (upstream cold-start regression)
+- `embedding_coverage` — ≥3 `saaz_list_artists` calls but 0 `saaz_search_artists` calls in last 6 h
+- `query_error_spike` — ≥3 `saaz_query` errors in last 6 h (schema mismatch signal)
+
+**Phase 2.5 smoke test (2026-05-28) — 5/5 PASS:**
+- `get_advisories` with no snapshot → `domain_expert` / `stale_schema` emitted ✅
+- `refresh_schema` → 6 tables captured ✅
+- `get_advisories` after fresh snapshot → no `stale_schema` advisory ✅
+- `"domain_expert"` kind serialises correctly in Advisory output ✅
+- Neon namespace gets zero saaz domain advisories ✅
+
+**Adding a new domain expert:**
+1. Subclass `DomainExpertAdvisor`, set `namespace = "<db_namespace>"`
+2. Implement `async def advise(pool, db_namespace) -> list[Advisory]`
+3. Call `register_expert(MyExpert())` at module bottom
+4. Import the module anywhere before `get_advisories` runs (or add to `history.py` imports)
+
 ## Phase 3 — Surface (not started)
 ## Phase 4 — Approve and act (deferred)
