@@ -45,7 +45,18 @@ def _wrap_untrusted(value: Any) -> str:
 
 
 def _extract_tool_text(result: Any) -> Any:
-    """Pull a JSON-friendly value out of a fastmcp Client.call_tool result."""
+    """Pull a JSON-friendly value out of a fastmcp Client.call_tool result.
+
+    FastMCP wraps typed return values in a ``{"result": <value>}``
+    structured_content envelope.  We unwrap that here so callers always
+    receive the raw value (list, dict, str, …).
+    """
+    # Prefer structured_content when available — avoids parsing text blobs.
+    if hasattr(result, "structured_content") and result.structured_content is not None:
+        sc = result.structured_content
+        if isinstance(sc, dict) and list(sc.keys()) == ["result"]:
+            return sc["result"]  # unwrap FastMCP envelope
+        return sc
     if isinstance(result, list):
         texts = [block.text for block in result if hasattr(block, "text")]
         if len(texts) == 1:
@@ -71,7 +82,10 @@ def _parse_table_list(raw: Any) -> list[str]:
             if isinstance(item, str):
                 out.append(item)
             elif isinstance(item, dict):
-                val = next(iter(item.values()), None)
+                # Prefer explicit "table_name" or "name" keys; fall back to first value.
+                val = item.get("table_name") or item.get("name") or next(
+                    (v for v in item.values() if isinstance(v, str)), None
+                )
                 if val is not None:
                     out.append(str(val))
         return out
@@ -80,6 +94,8 @@ def _parse_table_list(raw: Any) -> list[str]:
             return _parse_table_list(raw["tables"])
         if "rows" in raw:
             return _parse_table_list(raw["rows"])
+        if "result" in raw:
+            return _parse_table_list(raw["result"])
     if isinstance(raw, str):
         with suppress(json.JSONDecodeError, ValueError):
             return _parse_table_list(json.loads(raw))
@@ -279,13 +295,18 @@ def register_history_tools(
             table_names = _parse_table_list(_extract_tool_text(list_result))
 
             for table_name in table_names:
-                with suppress(Exception):
-                    desc_result = await client.call_tool(
-                        f"{resolved_prefix}_describe_table",
-                        {"table_name": table_name},
-                    )
-                    columns = _parse_columns(_extract_tool_text(desc_result))
-                    tables.append({"name": table_name, "columns": columns})
+                # Try both common parameter names for describe_table.
+                # Fall back to empty columns so the table still appears in the snapshot.
+                columns: list[dict[str, Any]] = []
+                for param_key in ("table", "table_name"):
+                    with suppress(Exception):
+                        desc_result = await client.call_tool(
+                            f"{resolved_prefix}_describe_table",
+                            {param_key: table_name},
+                        )
+                        columns = _parse_columns(_extract_tool_text(desc_result))
+                        break  # succeeded — stop trying alternate keys
+                tables.append({"name": table_name, "columns": columns})
 
         snapshot_id = await write_schema_snapshot(pool, db, tables, source="introspect")
 

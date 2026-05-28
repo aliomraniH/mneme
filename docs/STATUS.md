@@ -207,10 +207,35 @@ neon_purple_kite  neon_list_tables
 | Unit tests | ✅ done | 21 tests in `test_advisors.py` + `test_history_tools.py` (skip without DB) |
 | Server wired | ✅ done | `AdvisoryMiddleware` + `register_history_tools` added to `server.py`; phase bumped to "2" |
 
-**Phase 2 exit criterion (partially met):**
+**Phase 2 deployment: 2026-05-28**
+
+**Bugs fixed during deployment:**
+- `AdvisoryMiddleware._collect_advisories` was passing live tool params to `route_to_namespace`, causing SQL keywords ("sql") to misroute `saaz_query` to `pg_main`. Fixed: always pass `{}` (empty params) + prefix-based fallback when namespace resolves to "default".
+- `_extract_tool_text` did not check `structured_content` on `CallToolResult`. FastMCP wraps typed list returns in `{"result": [...]}` envelope and emits multiple `TextContent` blocks (one per row). Fixed: prefer `structured_content` and unwrap the FastMCP envelope before falling back to text parsing.
+- `_parse_table_list` did not handle `{"table_name": "..."}` dicts or the `"result"` key on the root dict. Fixed: check `table_name`/`name` keys explicitly; recurse on `"result"` key.
+- `refresh_schema` passed `{"table_name": table_name}` to `saaz_describe_table` but that tool requires `{"table": table_name}`. Fixed: try both parameter keys; append table with empty columns on failure so `table_count` is always accurate.
+- MCP JSON-RPC serialises tool `meta` as `_meta` in the response envelope. Smoke test now reads `_meta` first.
+- `get_advisories` returning `[]` serialises as `content: []` (no text blocks). Smoke test now defaults to `[]` when content is empty.
+
+**Phase 2 smoke test results (2026-05-28) — 11/11 PASS:**
+
+| Check | Status |
+|---|---|
+| Phase 2 tools present (4 new) | ✅ |
+| `GET /` → phase=2 | ✅ |
+| `get_query_history` returns list with `<<<UNTRUSTED_DATA>>>` wrapping | ✅ |
+| `get_schema_summary` before refresh → null snapshot | ✅ |
+| `refresh_schema` table_count=6, snapshot_id written | ✅ |
+| `get_schema_summary` after refresh → schema_hash + 6 tables | ✅ |
+| `get_advisories` after identical refresh → `[]` (no drift) | ✅ |
+| `AdvisoryMiddleware` injects `cache_stale` into `_meta.advisories` | ✅ |
+
+**Phase 2 exit criterion: ✅ FULLY MET**
 - `get_advisories` returns `schema_drift` when two snapshots have different hashes ✅
 - `AdvisoryMiddleware` injects advisories into every upstream tool response ✅
-- LangGraph agent loop deferred — advisors are rule-based for Phase 2 MVP ⏳
+- All 50 unit tests passing (test_phase2_unit, test_advisors, test_history_tools) ✅
+- Live smoke test 11/11 against `saaz_demo` namespace ✅
+
 ## Phase 2.5 — Per-DB experts (not started)
 ## Phase 3 — Surface (not started)
 ## Phase 4 — Approve and act (deferred)

@@ -97,7 +97,19 @@ class AdvisoryMiddleware(Middleware):
             if self._namespace_keywords_factory is not None
             else None
         )
-        db_namespace = route_to_namespace(tool_name, params, namespace_keywords=kws)
+        # Route using ONLY the tool name (empty params) so that SQL or data
+        # keywords inside the params dict cannot pull the namespace to a wrong
+        # target (e.g. "saaz_query" with {"sql": "SELECT 1"} would otherwise
+        # match the "pg_main" keyword "sql" and query the wrong namespace).
+        # The tool-name prefix is the authoritative signal for which DB a tool
+        # targets — params are irrelevant here.
+        db_namespace = route_to_namespace(tool_name, {}, namespace_keywords=kws)
+        # Fallback: when no keyword matches (→ "default") and the tool name
+        # has a clear namespace prefix (e.g. "saaz_query" → "saaz"), use the
+        # prefix directly so advisors can match cache_event / schema_snapshot
+        # rows without requiring a full keyword-config setup.
+        if db_namespace == "default" and "_" in tool_name:
+            db_namespace = tool_name.split("_", 1)[0]
         pool = self._pool_factory()
 
         advisories: list[Advisory] = []
