@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -163,7 +164,8 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     register_provision_tools(mneme, settings)
     register_db_registry_tools(mneme, _get_pool)
     register_history_tools(mneme, _get_pool)
-    register_warmup_tools(mneme, _get_pool, settings)
+    if not os.environ.get("DISABLE_WARMUP_TOOLS"):
+        register_warmup_tools(mneme, _get_pool, settings)
 
     # Start idle session reaper background task
     shutdown_event = asyncio.Event()

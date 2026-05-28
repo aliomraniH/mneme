@@ -61,7 +61,9 @@ async def truncate_mneme_tables(
             cache_event,
             db_schema_snapshot,
             column_doc,
-            registered_database
+            registered_database,
+            project_memory,
+            session_context_cache
         CASCADE
     """
     async with unit_pool.connection() as conn:
