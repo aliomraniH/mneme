@@ -43,7 +43,7 @@ class Episode(BaseModel):
 class Advisory(BaseModel):
     """Placeholder for Phase 2. Defined now so middleware signatures are stable."""
 
-    kind: Literal["cache_stale", "potential_conflict", "schema_drift", "middleware_error"]
+    kind: Literal["cache_stale", "potential_conflict", "schema_drift", "middleware_error", "domain_expert"]
     db_namespace: str
     message: str
     confidence: float
