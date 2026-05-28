@@ -324,13 +324,12 @@ def register_history_tools(
                    to do — reserved for semantic matching in Phase 2.5+.
         """
         pool = pool_factory()
-        settings = get_settings()
 
         namespaces: list[str]
         if db is not None:
             namespaces = [db]
         else:
-            env_namespaces = list(settings.all_upstream_servers().keys())
+            env_namespaces = list(get_settings().all_upstream_servers().keys())
             async with pool.connection() as conn:
                 cur = await conn.execute(
                     "SELECT namespace FROM registered_database WHERE is_active = TRUE"
