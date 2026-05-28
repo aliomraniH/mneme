@@ -22,7 +22,9 @@ from psycopg_pool import AsyncConnectionPool
 
 from agent_service.advisors.cache_stale import CacheStaleAdvisor
 from agent_service.advisors.conflict import ConflictAdvisor
+from agent_service.advisors.expert_base import get_experts
 from agent_service.advisors.schema_drift import SchemaDriftAdvisor
+import agent_service.advisors.saaz_expert as _saaz_expert  # noqa: F401 — registers expert
 from agent_service.config import get_settings
 from agent_service.errors import SchemaError
 from agent_service.memory.schema import (
@@ -359,7 +361,7 @@ def register_history_tools(
             registry_namespaces = [r[0] for r in reg_rows]
             namespaces = sorted(set(env_namespaces) | set(registry_namespaces))
 
-        advisors: list[SchemaDriftAdvisor | CacheStaleAdvisor | ConflictAdvisor] = [
+        generic_advisors: list[SchemaDriftAdvisor | CacheStaleAdvisor | ConflictAdvisor] = [
             SchemaDriftAdvisor(),
             CacheStaleAdvisor(),
             ConflictAdvisor(),
@@ -367,9 +369,13 @@ def register_history_tools(
 
         all_advisories: list[Advisory] = []
         for namespace in namespaces:
-            for advisor in advisors:
+            for advisor in generic_advisors:
                 with suppress(Exception):
                     all_advisories.extend(await advisor.advise(pool, namespace))
+            # Phase 2.5: run any registered domain-expert advisors for this namespace
+            for expert in get_experts(namespace):
+                with suppress(Exception):
+                    all_advisories.extend(await expert.advise(pool, namespace))
 
         all_advisories.sort(key=lambda a: a.confidence, reverse=True)
 
